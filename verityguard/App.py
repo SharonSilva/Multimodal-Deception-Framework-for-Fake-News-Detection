@@ -491,9 +491,10 @@ if __name__ == '__main__':
     print("   • GET  /api/stats             - Get statistics")
     print("\n" + "="*70 + "\n")
     
+    port = int(os.environ.get("PORT", 5000))
     app.run(
         debug=False,
         use_reloader=False,   # 🔥 REQUIRED
         host="0.0.0.0",
-        port=5001
+        port=port
     )
