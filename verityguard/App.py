@@ -12,6 +12,8 @@ from flask import Flask, request, jsonify, render_template, send_file
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import json
 import csv
 import uuid
@@ -20,8 +22,9 @@ from pathlib import Path
 import io
 import base64
 from PIL import Image
-import sys
 from  flask import Response
+from download_models_hf import download_from_huggingface
+download_from_huggingface()
 
 # Import the standalone detector
 from standalone_detector import StandaloneFakeNewsDetector
@@ -29,6 +32,7 @@ from inference_post_patterns import ComprehensiveInferencePipeline
 
 detector = StandaloneFakeNewsDetector()
 post_pattern_pipeline = ComprehensiveInferencePipeline()
+
 
 # ============================================================
 # APP CONFIGURATION
