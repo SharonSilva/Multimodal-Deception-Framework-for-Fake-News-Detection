@@ -1,0 +1,1153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VerityGuard — AI Fake News Detector</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;600;700&family=JetBrains+Mono:wght@400;500&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --ink: #0f1419;
+            --paper: #faf8f5;
+            --accent: #d63031;
+            --accent-soft: #ff7675;
+            --success: #00b894;
+            --warning: #fdcb6e;
+            --slate: #636e72;
+            --slate-light: #b2bec3;
+            --border: rgba(15, 20, 25, 0.1);
+            
+            --serif: 'Crimson Pro', serif;
+            --sans: 'DM Sans', sans-serif;
+            --mono: 'JetBrains Mono', monospace;
+            
+            --shadow-sm: 0 1px 3px rgba(15, 20, 25, 0.08);
+            --shadow-md: 0 4px 12px rgba(15, 20, 25, 0.12);
+            --shadow-lg: 0 12px 32px rgba(15, 20, 25, 0.16);
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: var(--sans);
+            background: var(--paper);
+            color: var(--ink);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            overflow-x: hidden;
+        }
+        
+        /* Animated background pattern */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                linear-gradient(90deg, transparent 79px, var(--border) 79px, var(--border) 81px, transparent 81px),
+                linear-gradient(transparent 79px, var(--border) 79px, var(--border) 81px, transparent 81px);
+            background-size: 80px 80px;
+            opacity: 0.4;
+            pointer-events: none;
+            z-index: 0;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+            position: relative;
+            z-index: 1;
+        }
+        
+        /* Header */
+        header {
+            padding: 3rem 0 2rem;
+            border-bottom: 3px solid var(--ink);
+            margin-bottom: 3rem;
+            animation: slideDown 0.6s ease-out;
+        }
+        
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .logo {
+            font-family: var(--serif);
+            font-size: 3.5rem;
+            font-weight: 700;
+            line-height: 1;
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.03em;
+        }
+        
+        .logo span {
+            color: var(--accent);
+        }
+        
+        .tagline {
+            font-family: var(--mono);
+            font-size: 0.875rem;
+            color: var(--slate);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+        
+        /* Status Badge */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: var(--success);
+            color: white;
+            border-radius: 2rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            margin-top: 1rem;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.8; }
+        }
+        
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: white;
+            border-radius: 50%;
+        }
+        
+        /* Main Grid */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-bottom: 3rem;
+        }
+        
+        @media (max-width: 1024px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        /* Cards */
+        .card {
+            background: white;
+            border: 2px solid var(--ink);
+            box-shadow: 8px 8px 0 var(--ink);
+            padding: 2rem;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            animation: fadeIn 0.6s ease-out backwards;
+        }
+        
+        .card:nth-child(1) { animation-delay: 0.1s; }
+        .card:nth-child(2) { animation-delay: 0.2s; }
+        .card:nth-child(3) { animation-delay: 0.3s; }
+        .card:nth-child(4) { animation-delay: 0.4s; }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .card:hover {
+            transform: translate(-4px, -4px);
+            box-shadow: 12px 12px 0 var(--ink);
+        }
+        
+        .card-header {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid var(--border);
+        }
+        
+        .card-icon {
+            font-size: 2rem;
+        }
+        
+        .card-title {
+            font-family: var(--serif);
+            font-size: 1.75rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+        
+        /* Form Elements */
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        
+        label {
+            display: block;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--slate);
+        }
+        
+        textarea {
+            width: 100%;
+            padding: 1rem;
+            border: 2px solid var(--ink);
+            background: var(--paper);
+            font-family: var(--sans);
+            font-size: 1rem;
+            resize: vertical;
+            min-height: 150px;
+            transition: all 0.2s;
+        }
+        
+        textarea:focus {
+            outline: none;
+            box-shadow: 4px 4px 0 var(--accent);
+        }
+        
+        input[type="text"] {
+            width: 100%;
+            padding: 0.875rem;
+            border: 2px solid var(--ink);
+            background: var(--paper);
+            font-family: var(--sans);
+            font-size: 1rem;
+            transition: all 0.2s;
+        }
+        
+        input[type="text"]:focus {
+            outline: none;
+            box-shadow: 4px 4px 0 var(--accent);
+        }
+        
+        /* File Upload */
+        .file-upload {
+            position: relative;
+            border: 3px dashed var(--slate-light);
+            padding: 2rem;
+            text-align: center;
+            background: var(--paper);
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+        
+        .file-upload:hover {
+            border-color: var(--accent);
+            background: white;
+        }
+        
+        .file-upload.dragging {
+            border-color: var(--success);
+            background: rgba(0, 184, 148, 0.05);
+        }
+        
+        .file-upload input[type="file"] {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+        
+        .file-upload-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+        
+        .file-preview {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: white;
+            border: 2px solid var(--ink);
+            display: none;
+        }
+        
+        .file-preview.active {
+            display: block;
+        }
+        
+        .file-preview img {
+            max-width: 100%;
+            height: auto;
+            border: 2px solid var(--border);
+        }
+        
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 1rem 2rem;
+            background: var(--ink);
+            color: white;
+            border: 2px solid var(--ink);
+            font-family: var(--mono);
+            font-size: 0.875rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 4px 4px 0 var(--ink);
+        }
+        
+        .btn:hover:not(:disabled) {
+            background: white;
+            color: var(--ink);
+            transform: translate(-2px, -2px);
+            box-shadow: 6px 6px 0 var(--ink);
+        }
+        
+        .btn:active:not(:disabled) {
+            transform: translate(2px, 2px);
+            box-shadow: 2px 2px 0 var(--ink);
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .btn-accent {
+            background: var(--accent);
+            border-color: var(--accent);
+            box-shadow: 4px 4px 0 var(--accent);
+        }
+        
+        .btn-accent:hover:not(:disabled) {
+            background: white;
+            color: var(--accent);
+            box-shadow: 6px 6px 0 var(--accent);
+        }
+        
+        .btn-accent:active:not(:disabled) {
+            box-shadow: 2px 2px 0 var(--accent);
+        }
+        
+        /* Results */
+        .result-container {
+            display: none;
+            margin-top: 2rem;
+            padding: 2rem;
+            background: white;
+            border: 3px solid var(--ink);
+            animation: slideUp 0.5s ease-out;
+        }
+        
+        .result-container.active {
+            display: block;
+        }
+        
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .verdict-badge {
+            display: inline-block;
+            padding: 1rem 2rem;
+            font-family: var(--mono);
+            font-size: 1.5rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            border: 3px solid;
+            margin-bottom: 1.5rem;
+        }
+        
+        .verdict-fake {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+        
+        .verdict-real {
+            background: var(--success);
+            color: white;
+            border-color: var(--success);
+        }
+        
+        .verdict-unknown {
+            background: var(--warning);
+            color: var(--ink);
+            border-color: var(--warning);
+        }
+        
+        .confidence-bar {
+            height: 1rem;
+            background: var(--border);
+            border: 2px solid var(--ink);
+            margin: 1rem 0;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .confidence-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--accent-soft));
+            transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin: 2rem 0;
+        }
+        
+        .metric {
+            padding: 1rem;
+            background: var(--paper);
+            border: 2px solid var(--border);
+        }
+        
+        .metric-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--slate);
+            margin-bottom: 0.25rem;
+        }
+        
+        .metric-value {
+            font-family: var(--mono);
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+        
+        /* Stats Dashboard */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1.5rem;
+        }
+        
+        .stat-card {
+            background: var(--paper);
+            border: 2px solid var(--ink);
+            padding: 1.5rem;
+            transition: all 0.3s;
+        }
+        
+        .stat-card:hover {
+            background: white;
+            transform: translateY(-4px);
+        }
+        
+        .stat-number {
+            font-family: var(--mono);
+            font-size: 2.5rem;
+            font-weight: 700;
+            line-height: 1;
+            margin-bottom: 0.5rem;
+        }
+        
+        .stat-label {
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--slate);
+        }
+        
+        /* Loading State */
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 2rem;
+        }
+        
+        .loading.active {
+            display: block;
+        }
+        
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 2rem;
+            border-bottom: 3px solid var(--ink);
+        }
+        
+        .tab {
+            padding: 1rem 2rem;
+            background: transparent;
+            border: none;
+            border-bottom: 3px solid transparent;
+            font-family: var(--mono);
+            font-size: 0.875rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: -3px;
+        }
+        
+        .tab:hover {
+            background: var(--paper);
+        }
+        
+        .tab.active {
+            border-bottom-color: var(--accent);
+            color: var(--accent);
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.3s ease-out;
+        }
+        
+        /* History Table */
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.875rem;
+        }
+        
+        .history-table thead {
+            background: var(--ink);
+            color: white;
+        }
+        
+        .history-table th,
+        .history-table td {
+            padding: 1rem;
+            text-align: left;
+            border: 2px solid var(--ink);
+        }
+        
+        .history-table tbody tr:nth-child(even) {
+            background: var(--paper);
+        }
+        
+        .history-table tbody tr:hover {
+            background: white;
+        }
+        
+        /* Footer */
+        footer {
+            margin-top: 4rem;
+            padding: 2rem 0;
+            border-top: 3px solid var(--ink);
+            text-align: center;
+            font-family: var(--mono);
+            font-size: 0.875rem;
+            color: var(--slate);
+        }
+
+        /* Terminal / Dull Output */
+        .dull-output {
+            font-family: var(--mono);
+            background: #1e1e1e;
+            color: #e0e0e0;
+            padding: 2rem;
+            border-radius: 8px;
+            white-space: pre-wrap;
+            overflow-x: auto;
+            line-height: 1.5;
+            border: 2px solid #333;
+            margin-top: 2rem;
+        }
+
+        .dull-output .section-title {
+            color: var(--accent);
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .dull-output .highlight {
+            color: var(--success);
+            font-weight: 700;
+        }
+
+        .dull-output .warn {
+            color: var(--warning);
+            font-weight: 700;
+        }
+
+        .dull-output .alert {
+            color: var(--accent);
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1 class="logo">Verity<span>Guard</span></h1>
+            <p class="tagline">AI-Powered Fake News Detection System</p>
+            <div class="status-badge" id="status">
+                <span class="status-dot"></span>
+                <span>System Initializing...</span>
+            </div>
+        </header>
+        
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('analyze')">📝 Analyze Post</button>
+            <button class="tab" onclick="switchTab('batch')">📊 Batch Process</button>
+            <button class="tab" onclick="switchTab('stats')">📈 Statistics</button>
+            <button class="tab" onclick="switchTab('history')">📚 History</button>
+        </div>
+        
+        <!-- ANALYZE TAB -->
+        <div id="analyze-tab" class="tab-content active">
+            <div class="main-grid">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-icon">📝</span>
+                        <h2 class="card-title">Post Content</h2>
+                    </div>
+                    
+                    <form id="analyze-form">
+                        <div class="form-group">
+                            <label>Post Text</label>
+                            <textarea 
+                                id="post-text" 
+                                placeholder="Enter the social media post or news article text here..."
+                                required
+                            ></textarea>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Username (Optional)</label>
+                            <input 
+                                type="text" 
+                                id="username" 
+                                placeholder="@username"
+                            >
+                        </div>
+                        
+                        <button type="submit" class="btn btn-accent">
+                            <span>🔍</span>
+                            <span>Analyze Post</span>
+                        </button>
+                    </form>
+                </div>
+                
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-icon">🖼️</span>
+                        <h2 class="card-title">Image Upload</h2>
+                    </div>
+                    
+                    <div class="file-upload" id="file-drop-zone">
+                        <input type="file" id="image-input" accept="image/*">
+                        <div class="file-upload-icon">📎</div>
+                        <p><strong>Click to upload</strong> or drag and drop</p>
+                        <p style="font-size: 0.875rem; color: var(--slate); margin-top: 0.5rem;">
+                            PNG, JPG, GIF up to 16MB
+                        </p>
+                    </div>
+                    
+                    <div class="file-preview" id="image-preview">
+                        <img id="preview-image" alt="Preview">
+                        <button class="btn" onclick="clearImage()" style="margin-top: 1rem; width: 100%;">
+                            Remove Image
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <p>Analyzing post with AI models...</p>
+            </div>
+            
+            <div class="result-container" id="results">
+                <!-- Results will be injected here -->
+            </div>
+        </div>
+        
+        <!-- BATCH TAB -->
+        <div id="batch-tab" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">📊</span>
+                    <h2 class="card-title">Batch CSV Processing</h2>
+                </div>
+                
+                <p style="margin-bottom: 1.5rem; color: var(--slate);">
+                    Upload a CSV file with columns: <code>text</code>, <code>image_path</code> (optional), <code>username</code> (optional)
+                </p>
+                
+                <form id="batch-form">
+                    <div class="file-upload">
+                        <input type="file" id="csv-input" accept=".csv" required>
+                        <div class="file-upload-icon">📄</div>
+                        <p><strong>Click to upload CSV</strong> or drag and drop</p>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-accent" style="margin-top: 1.5rem;">
+                        <span>⚡</span>
+                        <span>Process Batch</span>
+                    </button>
+                </form>
+                
+                <div class="loading" id="batch-loading">
+                    <div class="spinner"></div>
+                    <p>Processing batch...</p>
+                </div>
+                
+                <div id="batch-results"></div>
+            </div>
+        </div>
+        
+        <!-- STATS TAB -->
+        <div id="stats-tab" class="tab-content">
+            <div class="stats-grid" id="stats-container">
+                <div class="stat-card">
+                    <div class="stat-number">—</div>
+                    <div class="stat-label">Total Analyzed</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">—</div>
+                    <div class="stat-label">Fake Detected</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">—</div>
+                    <div class="stat-label">Real Content</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">—</div>
+                    <div class="stat-label">Avg Confidence</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- HISTORY TAB -->
+        <div id="history-tab" class="tab-content">
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-icon">📚</span>
+                    <h2 class="card-title">Recent Analyses</h2>
+                </div>
+                
+                <div id="history-container">
+                    <p style="color: var(--slate);">Loading history...</p>
+                </div>
+            </div>
+        </div>
+        
+        <footer>
+            <p>VerityGuard — Advanced AI-Powered Misinformation Detection</p>
+            <p style="margin-top: 0.5rem; font-size: 0.75rem;">
+                Powered by Emotion-Aware Fusion Neural Networks
+            </p>
+        </footer>
+    </div>
+    
+    <script>
+        // API Configuration
+        const API_BASE = window.location.origin;
+        
+        // State
+        let uploadedImage = null;
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            checkHealth();
+            setupFileUpload();
+            setupForms();
+            loadStats();
+            loadHistory();
+        });
+
+
+        
+        // Health Check
+        async function checkHealth() {
+            try {
+                const response = await fetch(`${API_BASE}/api/health`);
+                const data = await response.json();
+                
+                const statusEl = document.getElementById('status');
+                if (data.status === 'healthy') {
+                    statusEl.innerHTML = `
+                        <span class="status-dot"></span>
+                        <span>System Online • ${data.device.toUpperCase()}</span>
+                    `;
+                    statusEl.style.background = 'var(--success)';
+                } else {
+                    statusEl.innerHTML = `
+                        <span class="status-dot"></span>
+                        <span>System Error</span>
+                    `;
+                    statusEl.style.background = 'var(--accent)';
+                }
+            } catch (error) {
+                console.error('Health check failed:', error);
+            }
+        }
+
+        // Convert any object into HTML recursively
+        function renderDataAsHTML(data, level = 0) {
+            let html = '';
+
+            if (typeof data === 'object' && data !== null) {
+                html += '<div style="margin-left:' + (level * 15) + 'px;">';
+                for (const key in data) {
+                    if (data.hasOwnProperty(key)) {
+                        html += `
+                            <div class="section-title" style="font-size:${16 - level}px;">${key.replace(/_/g, ' ').toUpperCase()}</div>
+                            ${renderDataAsHTML(data[key], level + 1)}
+                        `;
+                    }
+                }
+                html += '</div>';
+            } else {
+                html += `<div class="highlight">${data}</div>`;
+            }
+
+            return html;
+        }
+
+        
+        // Tab Switching
+        function switchTab(tabName) {
+            // Update tab buttons
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            // Update tab content
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            document.getElementById(`${tabName}-tab`).classList.add('active');
+            
+            // Load data for specific tabs
+            if (tabName === 'stats') loadStats();
+            if (tabName === 'history') loadHistory();
+        }
+        
+        // File Upload Handling
+        function setupFileUpload() {
+            const dropZone = document.getElementById('file-drop-zone');
+            const input = document.getElementById('image-input');
+            const preview = document.getElementById('image-preview');
+            const previewImg = document.getElementById('preview-image');
+            
+            // Click to upload
+            input.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) handleImageFile(file);
+            });
+            
+            // Drag and drop
+            dropZone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropZone.classList.add('dragging');
+            });
+            
+            dropZone.addEventListener('dragleave', () => {
+                dropZone.classList.remove('dragging');
+            });
+            
+            dropZone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('dragging');
+                const file = e.dataTransfer.files[0];
+                if (file && file.type.startsWith('image/')) {
+                    handleImageFile(file);
+                }
+            });
+            
+            function handleImageFile(file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    uploadedImage = file;
+                    previewImg.src = e.target.result;
+                    preview.classList.add('active');
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+        
+        function clearImage() {
+            uploadedImage = null;
+            document.getElementById('image-input').value = '';
+            document.getElementById('image-preview').classList.remove('active');
+        }
+        
+        // Form Handling
+        function setupForms() {
+            // Analyze form
+            document.getElementById('analyze-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await analyzePost();
+            });
+            
+            // Batch form
+            document.getElementById('batch-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await processBatch();
+            });
+        }
+        
+        // Analyze Post
+        async function analyzePost() {
+            const text = document.getElementById('post-text').value;
+            const username = document.getElementById('username').value || 'anonymous';
+
+            const formData = new FormData();
+            formData.append('text', text);
+            formData.append('username', username);
+            if (uploadedImage) formData.append('image', uploadedImage);
+
+            // Show loading
+            document.getElementById('loading').classList.add('active');
+            document.getElementById('results').classList.remove('active');
+
+            try {
+                const response = await fetch(`${API_BASE}/api/predict`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    const container = document.getElementById('results');
+                    container.innerHTML = `<div class="dull-output">${renderDataAsHTML(data)}</div>`;
+                    container.classList.add('active');
+                    container.scrollIntoView({ behavior: 'smooth' });
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Analysis failed:', error);
+                alert('Analysis failed. Please try again.');
+            } finally {
+                document.getElementById('loading').classList.remove('active');
+            }
+        }
+
+        
+        // Batch Processing
+        async function processBatch() {
+            const fileInput = document.getElementById('csv-input');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('Please select a CSV file');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            document.getElementById('batch-loading').classList.add('active');
+            
+            try {
+                const response = await fetch(`${API_BASE}/api/batch`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    displayBatchResults(data);
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (error) {
+                console.error('Batch processing failed:', error);
+                alert('Batch processing failed. Please try again.');
+            } finally {
+                document.getElementById('batch-loading').classList.remove('active');
+            }
+        }
+        
+        function displayBatchResults(data) {
+    const container = document.getElementById('batch-results');
+
+    let html = `<div style="margin-top: 2rem; padding: 2rem; background: white; border: 3px solid var(--ink);">
+                    <h3 style="font-family: var(--serif); font-size: 1.75rem; margin-bottom: 1.5rem;">
+                        ✅ Batch Complete
+                    </h3>`;
+
+    // General stats
+    if (data.statistics) {
+        html += `<div class="metric-grid">`;
+        for (const key in data.statistics) {
+            if (data.statistics.hasOwnProperty(key)) {
+                html += `
+                    <div class="metric">
+                        <div class="metric-label">${key.replace(/_/g,' ').toUpperCase()}</div>
+                        <div class="metric-value">${data.statistics[key]}</div>
+                    </div>
+                `;
+            }
+        }
+        html += `</div>`;
+    }
+
+    // Full results download link
+    if (data.download_url) {
+        html += `<a href="${API_BASE}${data.download_url}" class="btn" style="margin-top: 1.5rem;">
+                    <span>📥</span>
+                    <span>Download Full Results</span>
+                 </a>`;
+    }
+
+    // Optional: render full per-post data
+    if (data.results) {
+        html += `<div style="margin-top:1.5rem;">
+                    <h4 style="font-family: var(--serif); font-size:1.25rem;">Full Batch Details</h4>
+                    ${renderDataAsHTML(data.results)}
+                 </div>`;
+    }
+
+    html += `</div>`;
+    container.innerHTML = html;
+}
+
+        
+        // Load Statistics
+        async function loadStats() {
+            try {
+                const response = await fetch(`${API_BASE}/api/stats`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    const stats = data.statistics;
+                    const container = document.getElementById('stats-container');
+                    
+                    container.innerHTML = `
+                        <div class="stat-card">
+                            <div class="stat-number">${stats.total_analyzed}</div>
+                            <div class="stat-label">Total Analyzed</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number" style="color: var(--accent);">${stats.fake_count}</div>
+                            <div class="stat-label">Fake Detected</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number" style="color: var(--success);">${stats.real_count}</div>
+                            <div class="stat-label">Real Content</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number">${(stats.average_confidence * 100).toFixed(1)}%</div>
+                            <div class="stat-label">Avg Confidence</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number">${stats.recent_trends.last_24h_count}</div>
+                            <div class="stat-label">Last 24 Hours</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-number">${(stats.average_score * 100).toFixed(1)}%</div>
+                            <div class="stat-label">Avg Score</div>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                console.error('Failed to load stats:', error);
+            }
+        }
+        
+        // Load History
+        async function loadHistory() {
+        try {
+            const response = await fetch(`${API_BASE}/api/results?limit=50`);
+            const data = await response.json();
+
+            const container = document.getElementById('history-container');
+
+            if (data.success && data.results.length > 0) {
+                // Dynamically get all top-level keys from the first result
+                const keys = Object.keys(data.results[0]);
+
+                // Create table header
+                let html = `<table class="history-table">
+                                <thead>
+                                    <tr>`;
+                keys.forEach(key => {
+                    html += `<th>${key.replace(/_/g, ' ').toUpperCase()}</th>`;
+                });
+                html += `   </tr>
+                            </thead>
+                            <tbody>`;
+
+                // Create table rows
+                data.results.forEach(result => {
+                    html += `<tr>`;
+                    keys.forEach(key => {
+                        const value = result[key];
+
+                        if (typeof value === 'object' && value !== null) {
+                            // If nested object/array, render as collapsible div
+                            html += `<td>${renderDataAsHTML(value)}</td>`;
+                        } else {
+                            html += `<td>${value}</td>`;
+                        }
+                    });
+                    html += `</tr>`;
+                });
+
+                html += `</tbody></table>`;
+                container.innerHTML = html;
+
+            } else {
+                container.innerHTML = '<p style="color: var(--slate);">No analysis history yet.</p>';
+            }
+        } catch (error) {
+            console.error('Failed to load history:', error);
+            document.getElementById('history-container').innerHTML =
+                '<p style="color: var(--accent);">Failed to load history. Check console for details.</p>';
+        }
+    }
+    </script>
+</body>
+</html>

@@ -1,0 +1,43 @@
+========================================================================================================================
+PIPELINE READINESS VALIDATION REPORT
+========================================================================================================================
+
+✅ PASS | DataFrame file exists                              
+✅ PASS | DataFrame loaded successfully                      13072 rows
+✅ PASS | DataFrame has required columns                     Found: ['post_id', 'post_text', 'user_id', 'image_id', 'username', 'timestamp', 'label', 'translated_text', 'hashtags', 'mentions', 'urls', 'emojis', 'clean_text', 'hashtags_count', 'user_mentions_count', 'urls_count', 'emojis_count', 'num_posts_user', 'global_embedding', 'local_embeddings', 'semantic_vector']
+✅ PASS | User IDs are unique per user                       11261 unique users
+❌ FAIL | No duplicate post IDs                              Duplicates: True
+✅ PASS | No null values in critical columns                 Has nulls: False
+✅ PASS | Text (BERT)     (CRITICAL)                         text_aligned.pt
+✅ PASS |   ↳ Shape validation                               Expected (11261, 64), got torch.Size([11261, 64])
+✅ PASS |   ↳ No NaN values                                  NaNs found: False
+✅ PASS |   ↳ No Inf values                                  Infs found: False
+✅ PASS |   ↳ Valid data type                                dtype: torch.float32
+✅ PASS | Image           (CRITICAL)                         image_aligned.pt
+❌ FAIL | VAD Scores      (OPTIONAL)                         vad_embeddings.pt
+✅ PASS | User Meta       (CRITICAL)                         meta_reduced.pt
+❌ FAIL | Image Node      (OPTIONAL)                         image_node_embeddings.pt
+✅ PASS | User ID mapping file exists                        
+✅ PASS |   ↳ Mapping loadable                               Type: <class 'dict'>
+✅ PASS |   ↳ Mapping size matches users                     Mapping: 11261, Users: 11261
+❌ FAIL | Graph builder metadata exists                      
+❌ FAIL | Cluster assignments exist                          
+✅ PASS | Text embeddings align with posts                   13072 vs 13072
+✅ PASS | Image embeddings align with posts                  13072 vs 13072
+✅ PASS | User embeddings align with unique users            11261 vs 11261
+✅ PASS | Text embedding dimension is correct                Got 768
+✅ PASS | Image embedding dimension is correct               Got 64
+✅ PASS | Data directory                                     Dataset/twitter
+✅ PASS | State directory                                    saved_state
+✅ PASS | Backup directory                                   embeddings_backup
+❌ FAIL | Main pipeline script exists                        gnn_pipeline.py
+✅ PASS | Package installed: PyTorch                         
+❌ FAIL | Package installed: DGL                             Not found
+✅ PASS | Package installed: Pandas                          
+✅ PASS | Package installed: NumPy                           
+✅ PASS | Package installed: Scikit-learn                    
+✅ PASS | Package installed: Transformers                    
+
+========================================================================================================================
+Summary: 36/43 passed (83.7%)
+========================================================================================================================
