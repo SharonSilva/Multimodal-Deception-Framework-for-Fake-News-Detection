@@ -1,1 +1,1 @@
-web: python verityguard/App.py
+web: gunicorn -b 0.0.0.0:$PORT verityguard.App:app
