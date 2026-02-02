@@ -1,0 +1,51 @@
+# Python / Conda
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.env
+.venv/
+venv/
+venv310/
+env/
+*.sqlite3
+*.db
+
+# Conda installer
+Miniconda3-latest-MacOSX-arm64.sh
+
+# Jupyter
+.ipynb_checkpoints/
+
+# VS Code
+.vscode/
+
+# Datasets & arrays
+Dataset/
+*.npy
+*.pkl
+scene_vectors_*.csv
+scene_vectors_*.h5
+
+# Checkpoints / Models
+checkpoints/
+trained_models/
+saved_state/
+*.pth
+*.pt
+*.h5
+verityguard/requirements.txt
+
+# Results / outputs
+clustering_results*/
+evaluation_results/
+uploads/
+results/
+*.npz
+*.json
+
+# Logs
+*.log
+
+# MacOS files
+.DS_Store
