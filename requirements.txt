@@ -1,26 +1,32 @@
-# PyTorch CPU-only
--f https://download.pytorch.org/whl/cpu/torch_stable.html
-torch==2.8.0+cpu
-torchvision==0.23.0+cpu
-torchaudio==2.8.0+cpu
-
-# Transformers for NLP
-transformers==4.36.2
-
+# -------------------------------
 # Web framework
+# -------------------------------
 Flask==3.1.0
 flask-cors==6.0.2
 gunicorn==22.0.0
 
+# -------------------------------
+# CPU-only PyTorch and related
+# -------------------------------
+torch==2.10.0
+torchvision==0.15.2
+torchaudio==2.10.0
+transformers==4.36.2
+
+# -------------------------------
 # Data handling
+# -------------------------------
 numpy==1.26.4
 pandas==3.0.0
 
+# -------------------------------
 # Image processing
+# -------------------------------
 Pillow==12.1.0
-opencv-python==4.11.0.86
 
+# -------------------------------
 # Optional utilities
+# -------------------------------
 python-dotenv==1.1.1
 emoji==2.2.0
 regex==2026.1.15
