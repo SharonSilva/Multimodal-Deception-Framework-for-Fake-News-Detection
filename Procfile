@@ -1,1 +1,1 @@
-web: gunicorn -b 0.0.0.0:$PORT verityguard.App:app
+web: gunicorn verityguard.App:app
