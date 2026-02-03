@@ -76,7 +76,13 @@ def load_models():
         download_from_huggingface()
 
         print("🚀 Initializing Fake News Detector...")
-        from .standalone_detector import StandaloneFakeNewsDetector
+        
+        # Smart import: try relative first (for production), fall back to absolute (for local dev)
+        try:
+            from .standalone_detector import StandaloneFakeNewsDetector
+        except ImportError:
+            from standalone_detector import StandaloneFakeNewsDetector
+        
         from inference_post_patterns import ComprehensiveInferencePipeline
 
         detector = StandaloneFakeNewsDetector()
