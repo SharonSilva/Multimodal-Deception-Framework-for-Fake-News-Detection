@@ -47,7 +47,13 @@ def download_from_huggingface():
     
     success = True
     for local_path, hf_filename in models.items():
-        # Check if already exists
+        # ✅ FIX: Create directory FIRST, before anything else
+        directory = os.path.dirname(local_path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+            print(f"✓ Ensured directory exists: {directory}")
+        
+        # ✅ FIX: NOW check if file already exists
         if os.path.exists(local_path):
             file_size = os.path.getsize(local_path) / (1024 * 1024)
             print(f"✓ {local_path} already exists ({file_size:.1f} MB)")
@@ -56,9 +62,6 @@ def download_from_huggingface():
         try:
             print(f"\n📥 Downloading {hf_filename}...")
             print(f"   From: {REPO_ID}")
-            
-            # Create directory if needed
-            Path(local_path).parent.mkdir(parents=True, exist_ok=True)
             
             # Download from Hugging Face
             downloaded_path = hf_hub_download(
