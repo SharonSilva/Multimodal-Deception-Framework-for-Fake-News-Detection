@@ -64,6 +64,13 @@ def load_models():
         if models_ready:
             return
 
+        # Apply memory optimizations BEFORE loading models
+        try:
+            from memory_utils import optimize_torch_memory
+            optimize_torch_memory()
+        except Exception as e:
+            print(f"⚠️ Could not apply memory optimizations: {e}")
+
         print("🤗 Downloading models from Hugging Face...")
         from download_models_hf import download_from_huggingface
         download_from_huggingface()
@@ -110,7 +117,7 @@ def index():
 
 @app.route('/api/health', methods=['GET'])
 def health():
-    load_models()  # Load models on first request
+    # Don't load models on health check
     return jsonify({
         'status': 'healthy',
         'models_ready': models_ready
