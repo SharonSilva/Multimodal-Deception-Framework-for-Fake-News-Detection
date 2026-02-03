@@ -1,28 +1,22 @@
-# Web
 Flask==3.1.0
 flask-cors==6.0.2
 gunicorn>=21.2.0,<23
 
-# Core ML
-torch==2.8.0
-torchvision==0.23.0
-torchaudio==2.8.0
+# CPU-ONLY PyTorch (NO CUDA!)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.1.0+cpu
+torchvision==0.16.0+cpu
+torchaudio==2.1.0+cpu
+
 transformers==4.36.2
-
-# NLP
-spacy==3.8.7
-
-# Vision
 opencv-python>=4.10
 Pillow>=10.0
 
-# Data
 numpy==1.26.4
 pandas>=2.0
 scikit-learn>=1.4
 scipy>=1.10
 
-# Utils
 emoji==2.2.0
 python-dotenv==1.1.1
 huggingface_hub>=0.19.3,<1.0
