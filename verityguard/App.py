@@ -69,7 +69,7 @@ def load_models():
         download_from_huggingface()
 
         print("🚀 Initializing Fake News Detector...")
-        from standalone_detector import StandaloneFakeNewsDetector
+        from .standalone_detector import StandaloneFakeNewsDetector
         from inference_post_patterns import ComprehensiveInferencePipeline
 
         detector = StandaloneFakeNewsDetector()
