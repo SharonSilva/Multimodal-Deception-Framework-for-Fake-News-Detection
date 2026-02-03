@@ -13,8 +13,6 @@ from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import os
 import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), "path_to_standalone_detector"))
-from standalone_detector import StandaloneFakeNewsDetector
 import json
 import uuid
 from datetime import datetime
