@@ -1,1 +1,1 @@
-web: export PYTHONPATH=$PWD && python verityguard/App.py
+web: gunicorn verityguard.App:app --bind 0.0.0.0:$PORT
