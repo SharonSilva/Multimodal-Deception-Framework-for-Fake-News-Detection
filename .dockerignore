@@ -6,3 +6,10 @@ __pycache__/
 .env
 data/
 logs/
+uploads/
+results/
+checkpoints/
+trained_models/
+*.sqlite3
+*.db
+.DS_Store
