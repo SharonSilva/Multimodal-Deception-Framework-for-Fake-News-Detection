@@ -2,20 +2,21 @@ Flask==3.1.0
 flask-cors==6.0.2
 gunicorn>=21.2.0,<23
 
-# CPU PyTorch (pre-built wheels)
-torch==2.1.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
-torchvision==0.16.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
-torchaudio==2.1.0+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+# CPU-ONLY PyTorch (NO CUDA!)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.1.0+cpu
+torchvision==0.16.0+cpu
+torchaudio==2.1.0+cpu
 
 transformers==4.36.2
-opencv-python==4.11.0.86
-Pillow==12.1.0
+opencv-python>=4.10
+Pillow>=10.0
 
 numpy==1.26.4
-pandas==3.0.0
-scikit-learn==1.8.0
-scipy==1.17.0
+pandas>=2.0
+scikit-learn>=1.4
+scipy>=1.10
 
 emoji==2.2.0
 python-dotenv==1.1.1
-huggingface_hub>=0.36.1
+huggingface_hub>=0.19.3,<1.0
