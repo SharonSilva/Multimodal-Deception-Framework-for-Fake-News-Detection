@@ -124,3 +124,8 @@ weibo_train.py
 # Training scripts not needed for deployment
 train_vision_fusion.py
 vad.py
+
+anomaly_detection_results/*.png
+anomaly_detection_results/*.pt
+checkpoints/*.pth
+platt_calibrator.pkl
