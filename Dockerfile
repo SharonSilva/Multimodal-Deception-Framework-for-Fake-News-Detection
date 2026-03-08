@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender-dev \
     libgomp1 \
+    llvm \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Ollama
