@@ -85,3 +85,42 @@ temporal_deception_results_summary.csv
 diagnostics_results.pkl
 clean_results.pkl
 processed_posts.json
+
+# Test scripts not needed for deployment
+anomaly_scores_test.py
+anomaly_test.py
+test_anomaly.py
+evaluate_gnn_detection.py
+prepare_vision_fusion.py
+detect_campaigns.py
+statistical_validation.py
+testing.py
+check_vad.py
+bridge_to_suspicious_format.py
+inference_server.py
+weibo_plot_curves.py
+flyio.sh
+
+# Result and report files
+results.json
+results_emotion_aware.json
+results_safe.json
+training_results.json
+weibo_train_results.json
+anomaly_component_test_report.json
+anomaly_component_test_report.txt
+dataset_verification_report.txt
+
+# Training curve images
+twitter_training_curves.png
+weibo_training_curves.png
+
+# Weibo scripts not needed for deployment
+weibo_extract.py
+weibo_platt_calibrator.pkl
+weibo_test.py
+weibo_train.py
+
+# Training scripts not needed for deployment
+train_vision_fusion.py
+vad.py
