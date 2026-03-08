@@ -18,6 +18,12 @@ RUN apt-get update && apt-get install -y \
 # Install Ollama
 RUN curl -fsSL https://ollama.com/install.sh | sh
 
+# Pre-pull Ollama models at build time (avoids startup timeout)
+RUN ollama serve & sleep 5 && \
+    ollama pull moondream && \
+    ollama pull llama3.2 && \
+    pkill ollama || true
+
 # Set working directory
 WORKDIR /app
 
