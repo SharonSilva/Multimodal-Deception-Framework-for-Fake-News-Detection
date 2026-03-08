@@ -4,14 +4,18 @@ __pycache__/
 *.pyo
 *.pyd
 *.env
+.env
 .venv/
 venv/
 venv310/
 env/
+deception-pipeline/
 *.sqlite3
 *.db
 
-# Conda installer
+# Conda environment file (optional)
+# If you export environment.yml, you can commit it instead
+# Miniconda installer should NOT be tracked
 Miniconda3-latest-MacOSX-arm64.sh
 
 # Jupyter
@@ -19,34 +23,65 @@ Miniconda3-latest-MacOSX-arm64.sh
 
 # VS Code
 .vscode/
-
-# Datasets & arrays
-Dataset/
-*.npy
-*.pkl
-scene_vectors_*.csv
-scene_vectors_*.h5
-
-# Checkpoints / Models
-checkpoints/
-trained_models/
-saved_state/
-*.pth
-*.pt
-*.h5
-verityguard/requirements.txt
-evaluate_mismatch_and_accuracy.py
-
-# Results / outputs
-clustering_results*/
-evaluation_results/
-uploads/
-results/
-*.npz
-*.json
-
-# Logs
-*.log
-
-# MacOS files
+DS_Store
+Dataset/twitter/*.pkl
 .DS_Store
+.gitattributes
+.gitignore 2
+scene_vectors_vit_vad.pkl
+
+*.npy
+*.h5
+*.csv
+*.sqlite3
+*.db
+
+# Large model files — upload to HF Hub instead
+vit_affectnet_vad.pth
+yolov8s.pt
+yolov8n.pt
+best_adaptive_model.pt
+best_baseline_model.pt
+best_suspicion_model.pt
+best_suspicion_model_final.pt
+best_model_safe.pt
+cached_image_embeddings.pt
+metadata_dense_embeddings.pt
+metadata_user_sequence_embeddings.pt
+prepared_clustering_data.pt
+prepared_clustering_data_full.pt
+trained_vad_projector_cosine.pth
+vad_projector.pth
+trained_models/
+
+# Large data directories
+Dataset/
+cnn_embeddings_batches/
+vit_embeddings_batches/
+object_embeddings_batches/
+scene_vectors_twitter*
+embeddings_backup/
+embeddings_backup_sync/
+saved_state/
+heterogeneous_graph/
+
+# Results and outputs — not needed for deployment
+campaign_detection_results/
+clustering_results/
+clustering_results_advanced_v2/
+clustering_results_enhanced/
+suspicious_detection_results/
+explainability_results/
+evaluation_results/
+detection_results/
+gnn_results/
+statistical_validation_results/
+ablation_results/
+
+# Misc
+*.npz
+merge_dataset_deception_cluster
+temporal_deception_results_summary.csv
+diagnostics_results.pkl
+clean_results.pkl
+processed_posts.json
