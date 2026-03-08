@@ -28,7 +28,7 @@ import warnings
 
 warnings.filterwarnings('ignore')
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
 
 print("="*80)
 print("ANOMALY DETECTION PIPELINE FOR FAKE NEWS DETECTION")
@@ -52,6 +52,20 @@ try:
 except:
     print("⚠️ Could not load prepared data")
     exit(1)
+    
+# Load ground truth labels
+print("Loading ground truth labels...")
+df_labels = pd.read_pickle("Dataset/twitter/df_preprocessed_with_scores.pkl")
+df_labels = df_labels.drop_duplicates(subset='post_id', keep='first').reset_index(drop=True)
+
+# Align labels to post_ids in prepared_data
+post_id_to_label = dict(zip(df_labels['post_id'], df_labels['label']))
+labels_aligned = np.array([
+    post_id_to_label.get(pid, 'unknown') for pid in post_ids
+])
+
+real_mask = labels_aligned == 'real'
+print(f"✅ Real posts: {real_mask.sum()} | Fake posts: {(~real_mask).sum()}")
 
 # ============================================================================
 # STEP 2: FEATURE ENGINEERING
@@ -112,6 +126,13 @@ print(f"   Explained variance: {pca.explained_variance_ratio_.sum():.1%}")
 
 print("\n[STEP 4] Running multiple anomaly detection algorithms...")
 
+# ============================================================================
+# STEP 4: MULTIPLE ANOMALY DETECTION METHODS (fit on real posts only)
+# ============================================================================
+
+print("\n[STEP 4] Running multiple anomaly detection algorithms...")
+print(f"   Fitting on {real_mask.sum()} real posts, scoring all {len(X_reduced)} posts...")
+
 anomaly_scores = {}
 
 # 4.1 Isolation Forest
@@ -120,12 +141,11 @@ iso_forest = IsolationForest(
     contamination=0.1,
     random_state=42,
     n_estimators=200,
-    max_samples='auto',
     n_jobs=-1
 )
-iso_forest.fit(X_reduced)
-iso_scores = -iso_forest.score_samples(X_reduced)  # Negative = more anomalous
-iso_labels = iso_forest.predict(X_reduced)  # -1 = anomaly, 1 = normal
+iso_forest.fit(X_reduced[real_mask])
+iso_scores = -iso_forest.score_samples(X_reduced)
+iso_labels = iso_forest.predict(X_reduced)
 anomaly_scores['isolation_forest'] = iso_scores
 print(f"   ✅ Detected {(iso_labels == -1).sum()} anomalies ({(iso_labels == -1).sum()/len(X_reduced)*100:.1f}%)")
 
@@ -134,34 +154,28 @@ print("   [4.2] Local Outlier Factor...")
 lof = LocalOutlierFactor(
     n_neighbors=20,
     contamination=0.1,
-    novelty=False,
-    n_jobs=-1
+    novelty=True
 )
-lof_labels = lof.fit_predict(X_reduced)
-lof_scores = -lof.negative_outlier_factor_  # Higher = more anomalous
+lof.fit(X_reduced[real_mask])
+lof_labels = lof.predict(X_reduced)
+lof_scores = -lof.score_samples(X_reduced)
 anomaly_scores['lof'] = lof_scores
 print(f"   ✅ Detected {(lof_labels == -1).sum()} anomalies ({(lof_labels == -1).sum()/len(X_reduced)*100:.1f}%)")
 
 # 4.3 One-Class SVM
 print("   [4.3] One-Class SVM...")
-ocsvm = OneClassSVM(
-    kernel='rbf',
-    gamma='auto',
-    nu=0.1  # Expected proportion of outliers
-)
-ocsvm.fit(X_reduced)
+ocsvm = OneClassSVM(kernel='rbf', gamma='auto', nu=0.1)
+ocsvm.fit(X_reduced[real_mask])
 ocsvm_labels = ocsvm.predict(X_reduced)
-ocsvm_scores = -ocsvm.score_samples(X_reduced)  # More negative = more anomalous
+ocsvm_scores = -ocsvm.score_samples(X_reduced)
 anomaly_scores['ocsvm'] = ocsvm_scores
 print(f"   ✅ Detected {(ocsvm_labels == -1).sum()} anomalies ({(ocsvm_labels == -1).sum()/len(X_reduced)*100:.1f}%)")
 
 # 4.4 Elliptic Envelope
 print("   [4.4] Elliptic Envelope (Robust Covariance)...")
-elliptic = EllipticEnvelope(
-    contamination=0.1,
-    random_state=42
-)
-elliptic_labels = elliptic.fit_predict(X_reduced)
+elliptic = EllipticEnvelope(contamination=0.1, random_state=42)
+elliptic.fit(X_reduced[real_mask])
+elliptic_labels = elliptic.predict(X_reduced)
 elliptic_scores = -elliptic.score_samples(X_reduced)
 anomaly_scores['elliptic'] = elliptic_scores
 print(f"   ✅ Detected {(elliptic_labels == -1).sum()} anomalies ({(elliptic_labels == -1).sum()/len(X_reduced)*100:.1f}%)")
@@ -275,7 +289,7 @@ for user_id in tqdm(set(results_df['user_id']), desc="Analyzing users"):
         n_high * 5 +
         n_medium * 2 +
         n_low * 0.5
-    ) / max(n_posts, 1) * 10
+    ) / max(n_posts, 1) * 10 * min(n_posts/ 5, 1.0)
     
     risk_score = min(risk_score, 100)  # Cap at 100
     
@@ -284,15 +298,15 @@ for user_id in tqdm(set(results_df['user_id']), desc="Analyzing users"):
         (n_critical >= 2) or
         (n_high >= 3) or
         (mean_anomaly_score > anomaly_percentiles[2]) or
-        (risk_score > 50)
+        (risk_score > 20)
     )
     
     # Risk category
-    if risk_score >= 75:
+    if risk_score >= 35:
         risk_category = 'critical'
-    elif risk_score >= 50:
+    elif risk_score >= 20:
         risk_category = 'high'
-    elif risk_score >= 25:
+    elif risk_score >= 10:
         risk_category = 'medium'
     else:
         risk_category = 'low'
@@ -355,21 +369,60 @@ if suspicious_users:
     suspicious_df = suspicious_df.sort_values('risk_score', ascending=False)
     suspicious_df.to_csv(output_dir / "suspicious_users.csv")
 
-# Save models and preprocessors
+# Save per-method score distributions for correct inference normalization
+method_score_distributions = {}
+for name, model in [('isolation_forest', iso_forest),
+                     ('lof', lof),
+                     ('ocsvm', ocsvm),
+                     ('elliptic', elliptic)]:
+    raw = -model.score_samples(X_reduced)
+    method_score_distributions[name] = {
+        'min':  float(raw.min()),
+        'max':  float(raw.max()),
+        'mean': float(raw.mean()),
+        'std':  float(raw.std()),
+        'p25':  float(np.percentile(raw, 25)),
+        'p75':  float(np.percentile(raw, 75)),
+        'p95':  float(np.percentile(raw, 95)),
+    }
+    print(f"  {name}: raw range=[{raw.min():.4f}, {raw.max():.4f}]")
+
+ensemble_score_distribution = {
+    'min':  float(ensemble_score.min()),
+    'max':  float(ensemble_score.max()),
+    'mean': float(ensemble_score.mean()),
+    'std':  float(ensemble_score.std()),
+    'p25':  float(np.percentile(ensemble_score, 25)),
+    'p50':  float(np.percentile(ensemble_score, 50)),
+    'p75':  float(np.percentile(ensemble_score, 75)),
+    'p90':  float(np.percentile(ensemble_score, 90)),
+    'p95':  float(np.percentile(ensemble_score, 95)),
+    'p99':  float(np.percentile(ensemble_score, 99)),
+}
+
 torch.save({
     'scaler': scaler,
     'pca': pca,
     'umap_reducer': reducer,
     'models': {
         'isolation_forest': iso_forest,
+        'lof': lof,
         'ocsvm': ocsvm,
         'elliptic': elliptic
     },
     'ensemble_weights': weights,
     'anomaly_percentiles': anomaly_percentiles,
+    'method_score_distributions': method_score_distributions,
+    'ensemble_score_distribution': ensemble_score_distribution,
     'X_reduced': X_reduced,
     'X_2d': X_2d
 }, output_dir / "anomaly_models.pt")
+
+print(f"\n✅ Saved with score distributions")
+print(f"   Ensemble: p25={ensemble_score_distribution['p25']:.4f} "
+      f"p50={ensemble_score_distribution['p50']:.4f} "
+      f"p75={ensemble_score_distribution['p75']:.4f} "
+      f"p95={ensemble_score_distribution['p95']:.4f}")
 
 print(f"✅ Saved results to {output_dir}/")
 

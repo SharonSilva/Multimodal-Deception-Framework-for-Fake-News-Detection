@@ -18,7 +18,7 @@ from tqdm import tqdm
 import pickle
 import os
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
 
 
 print("=" * 80)
@@ -171,12 +171,14 @@ state = torch.load("checkpoints/best_emotion_aware_detector.pth", map_location=d
 new_state = {}
 for k, v in state.items():
     if k.startswith("fusion."):
+        # Remap fusion. → fusion_layer. to match rough_work architecture
         new_k = k.replace("fusion.", "fusion_layer.")
         new_state[new_k] = v
+    elif k.startswith("classifier."):
+        # Keep classifier weights — architecture matches
+        new_state[k] = v
     else:
-        # skip classifier
-        if not k.startswith("classifier."):
-            new_state[k] = v
+        new_state[k] = v
 
 missing, unexpected = emotion_model.load_state_dict(new_state, strict=False)
 

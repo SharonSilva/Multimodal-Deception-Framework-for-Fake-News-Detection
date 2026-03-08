@@ -1,606 +1,633 @@
 """
-temporal_heterogeneous_gnn.py
-==============================
-Temporal Heterogeneous Graph Neural Network for fake news detection.
+BUILD HETEROGENEOUS GRAPH FOR TEMPORAL GNN
+==========================================
+Constructs a heterogeneous graph from existing pipeline outputs.
 
-Architecture:
-1. Heterogeneous message passing across different node/edge types
-2. Temporal evolution modeling with GRU
-3. Fusion of temporal + heterogeneous embeddings
-4. Multi-task outputs: node classification, edge classification, risk scoring
+Node types:
+  - post            : each post (features = z_out + v_mismatch from emotion model)
+  - user            : each unique user (features = aggregated post embeddings + metadata)
+  - hashtag         : each unique hashtag (features = averaged post embeddings)
+  - community       : cluster groups from cluster_label column
+  - deception_cluster: anomaly severity groups (critical/high)
+
+Edge types:
+  - (user, creates, post)
+  - (post, contains, hashtag)
+  - (hashtag, cooccurs_with, hashtag)
+  - (user, interacts_with, user)       via shared hashtags/mentions
+  - (post, belongs_to, community)
+  - (post, flagged_in, deception_cluster)
+  - (deception_cluster, colludes_with, deception_cluster)
+
+Outputs saved to heterogeneous_graph/:
+  - node_features.pt      {node_type: tensor}
+  - edge_dict.pt          {(src, rel, dst): (edge_index, edge_weight)}
+  - node_mappings.pkl     {node_type: {original_id: local_idx}}
+  - graph_stats.txt       summary of graph structure
 """
 
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch_geometric.nn import MessagePassing
-from torch_geometric.utils import add_self_loops, degree
+import numpy as np
+import pandas as pd
 import pickle
 from pathlib import Path
-import numpy as np
+from collections import defaultdict
+import ast
+import warnings
+warnings.filterwarnings('ignore')
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print("=" * 80)
+print("BUILDING HETEROGENEOUS GRAPH FOR TEMPORAL GNN")
+print("=" * 80)
 
-# ============================================================================
-# HETEROGENEOUS MESSAGE PASSING LAYER
-# ============================================================================
-
-class HeteroMessagePassing(nn.Module):
-    """
-    Message passing for heterogeneous graphs with multiple relation types.
-    
-    For each relation type r:
-      h_v^(l+1) = σ( Σ_{u ∈ N_r(v)} (1/c_{v,r}) * W_r^(l) * h_u^(l) )
-    """
-    
-    def __init__(self, in_dims, out_dim, relation_types):
-        """
-        Args:
-            in_dims: dict {node_type: input_dim}
-            out_dim: output embedding dimension (common space)
-            relation_types: list of (src_type, rel_type, dst_type)
-        """
-        super().__init__()
-        
-        self.in_dims = in_dims
-        self.out_dim = out_dim
-        self.relation_types = relation_types
-        
-        # Create projection layers for each relation type
-        self.relation_weights = nn.ModuleDict()
-        
-        for src_type, rel_type, dst_type in relation_types:
-            key = f"{src_type}_{rel_type}_{dst_type}"
-            in_dim = in_dims[src_type]
-            self.relation_weights[key] = nn.Linear(in_dim, out_dim)
-        
-        # Layer normalization
-        self.norm = nn.LayerNorm(out_dim)
-        
-    def forward(self, node_features, edge_dict):
-        """
-        Args:
-            node_features: dict {node_type: feature_tensor}
-            edge_dict: dict {(src_type, rel, dst_type): (edge_index, edge_weight)}
-                       edge_index: [2, num_edges]
-                       edge_weight: [num_edges]
-                       
-        Returns:
-            updated_features: dict {node_type: updated_tensor}
-        """
-        updated_features = {}
-        
-        # Process each node type
-        for node_type in node_features.keys():
-            # Initialize aggregated messages
-            num_nodes = node_features[node_type].shape[0]
-            device = node_features[node_type].device
-            
-            aggregated = torch.zeros(num_nodes, self.out_dim, device=device)
-            
-            # Aggregate messages from all incoming relation types
-            for (src_type, rel_type, dst_type) in self.relation_types:
-                if dst_type != node_type:
-                    continue
-                
-                key = f"{src_type}_{rel_type}_{dst_type}"
-                
-                if (src_type, rel_type, dst_type) not in edge_dict:
-                    continue
-                
-                edge_index, edge_weight = edge_dict[(src_type, rel_type, dst_type)]
-                
-                # Validate edge indices
-                src_nodes = edge_index[0]
-                dst_nodes = edge_index[1]
-                
-                # Filter out-of-bounds indices
-                src_max = node_features[src_type].shape[0]
-                dst_max = num_nodes
-                
-                valid_mask = (
-                    (src_nodes >= 0) & (src_nodes < src_max) &
-                    (dst_nodes >= 0) & (dst_nodes < dst_max)
-                )
-                
-                if valid_mask.sum() == 0:
-                    continue
-                
-                src_nodes = src_nodes[valid_mask]
-                dst_nodes = dst_nodes[valid_mask]
-                edge_weight = edge_weight[valid_mask]
-                
-                # Get source node features
-                src_features = node_features[src_type]
-                
-                # Project through relation-specific weight
-                transformed = self.relation_weights[key](src_features)
-                
-                # Normalize by degree (destination node degree)
-                deg = torch.zeros(num_nodes, device=device)
-                deg.scatter_add_(0, dst_nodes, edge_weight)
-                deg = deg.clamp(min=1.0)
-                
-                # Aggregate messages (vectorized)
-                messages = transformed[src_nodes] * edge_weight.unsqueeze(1)
-                messages = messages / deg[dst_nodes].unsqueeze(1)
-                
-                aggregated.scatter_add_(0, dst_nodes.unsqueeze(1).expand_as(messages), messages)
-            
-            # Apply activation and normalization
-            updated_features[node_type] = self.norm(F.relu(aggregated))
-        
-        return updated_features
-
+output_dir = Path("heterogeneous_graph")
+output_dir.mkdir(exist_ok=True)
 
 # ============================================================================
-# TEMPORAL EVOLUTION MODULE
+# STEP 1: LOAD ALL DATA SOURCES
 # ============================================================================
+print("\n[STEP 1] Loading data sources...")
 
-class TemporalEvolutionGRU(nn.Module):
-    """
-    Models temporal evolution of node embeddings using GRU.
-    
-    h_v^t = GRU(h_v^{t-1}, aggregate(neighbors at time t))
-    """
-    
-    def __init__(self, hidden_dim):
-        super().__init__()
-        self.hidden_dim = hidden_dim
-        
-        # GRU cell for temporal updates
-        self.gru_cell = nn.GRUCell(hidden_dim, hidden_dim)
-        
-        # Temporal decay weight
-        self.temporal_decay = nn.Parameter(torch.tensor(3600.0))  # tau in seconds
-        
-    def forward(self, current_embeddings, neighbor_messages, timestamps, current_time):
-        """
-        Args:
-            current_embeddings: [num_nodes, hidden_dim]
-            neighbor_messages: [num_nodes, hidden_dim] - aggregated from neighbors
-            timestamps: [num_nodes] - last update time for each node
-            current_time: scalar - current timestamp
-            
-        Returns:
-            updated_embeddings: [num_nodes, hidden_dim]
-        """
-        # Compute time decay weights
-        time_deltas = current_time - timestamps
-        decay_weights = torch.exp(-time_deltas / self.temporal_decay)
-        decay_weights = decay_weights.unsqueeze(1)  # [num_nodes, 1]
-        
-        # Apply temporal decay to current embeddings
-        decayed_embeddings = current_embeddings * decay_weights
-        
-        # Update with GRU
-        updated = self.gru_cell(neighbor_messages, decayed_embeddings)
-        
-        return updated
+# Raw dataset
+df = pd.read_pickle("Dataset/twitter/df_preprocessed_with_scores.pkl")
+df = df.drop_duplicates(subset='post_id', keep='first').reset_index(drop=True)
+df['post_id'] = df['post_id'].astype(str)
+df['user_id'] = df['user_id'].astype(str)
+print(f"   ✅ Dataset: {len(df)} posts, {df['user_id'].nunique()} users")
 
+# Emotion-aware embeddings
+cluster_data = torch.load("prepared_clustering_data.pt", map_location='cpu', weights_only=False)
+z_out      = cluster_data['z_out']        # [N, 128]
+v_mismatch = cluster_data['v_mismatch']   # [N, 128]
+post_ids_emb  = [str(p) for p in cluster_data['post_ids']]
+user_ids_emb  = cluster_data['user_ids']
+timestamps_emb = cluster_data['timestamps']
+print(f"   ✅ Embeddings: z_out={z_out.shape}, v_mismatch={v_mismatch.shape}")
+
+# Anomaly assignments
+anomaly_df = pd.read_csv("anomaly_detection_results/anomaly_assignments.csv")
+anomaly_df['post_id'] = anomaly_df['post_id'].astype(str)
+anomaly_df['user_id'] = anomaly_df['user_id'].astype(str)
+print(f"   ✅ Anomaly assignments: {len(anomaly_df)} posts")
+
+# Build post_id → embedding index lookup
+post_id_to_emb_idx = {pid: i for i, pid in enumerate(post_ids_emb)}
 
 # ============================================================================
-# MAIN TEMPORAL HETEROGENEOUS GNN MODEL
+# STEP 2: PARSE HASHTAGS AND MENTIONS
 # ============================================================================
+print("\n[STEP 2] Parsing hashtags and mentions...")
 
-class TemporalHeterogeneousGNN(nn.Module):
-    """
-    Complete Temporal Heterogeneous GNN for fake news detection.
-    
-    Architecture:
-    1. Node feature projection to common space
-    2. Multiple layers of heterogeneous message passing
-    3. Temporal GRU updates
-    4. Fusion layer
-    5. Multi-task prediction heads (including edge classification)
-    """
-    
-    def __init__(self, node_dims, hidden_dim=256, num_layers=3, 
-                 relation_types=None, num_classes=2):
-        """
-        Args:
-            node_dims: dict {node_type: input_dim}
-            hidden_dim: common embedding dimension
-            num_layers: number of message passing layers
-            relation_types: list of (src_type, rel_type, dst_type) tuples
-            num_classes: number of output classes (2 for binary)
-        """
-        super().__init__()
-        
-        self.node_types = list(node_dims.keys())
-        self.hidden_dim = hidden_dim
-        self.num_layers = num_layers
-        self.relation_types = relation_types or []
-        
-        # 1. Input projection layers (to common space)
-        self.input_projections = nn.ModuleDict()
-        for ntype, dim in node_dims.items():
-            self.input_projections[ntype] = nn.Sequential(
-                nn.Linear(dim, hidden_dim),
-                nn.ReLU(),
-                nn.LayerNorm(hidden_dim)
-            )
-        
-        # 2. Heterogeneous message passing layers
-        self.hetero_layers = nn.ModuleList([
-            HeteroMessagePassing(
-                in_dims={ntype: hidden_dim for ntype in node_dims.keys()},
-                out_dim=hidden_dim,
-                relation_types=self.relation_types
-            )
-            for _ in range(num_layers)
-        ])
-        
-        # 3. Temporal evolution modules (one per node type)
-        self.temporal_modules = nn.ModuleDict()
-        for ntype in node_dims.keys():
-            self.temporal_modules[ntype] = TemporalEvolutionGRU(hidden_dim)
-        
-        # 4. Fusion layer (combines temporal + heterogeneous features)
-        self.fusion = nn.Sequential(
-            nn.Linear(hidden_dim * 2, hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.LayerNorm(hidden_dim)
+def safe_parse_list(val):
+    """Safely parse a list-like column that may be stored as string."""
+    if isinstance(val, list):
+        return val
+    if pd.isna(val) or val == '' or val == 'nan':
+        return []
+    try:
+        parsed = ast.literal_eval(str(val))
+        return parsed if isinstance(parsed, list) else []
+    except:
+        return []
+
+df['hashtags_parsed'] = df['hashtags'].apply(safe_parse_list)
+df['mentions_parsed'] = df['mentions'].apply(safe_parse_list)
+
+# Normalise hashtags to lowercase without #
+def normalise_hashtag(h):
+    return str(h).lower().lstrip('#').strip()
+
+df['hashtags_parsed'] = df['hashtags_parsed'].apply(
+    lambda lst: [normalise_hashtag(h) for h in lst if str(h).strip()]
+)
+df['mentions_parsed'] = df['mentions_parsed'].apply(
+    lambda lst: [str(m).lstrip('@').strip().lower() for m in lst if str(m).strip()]
+)
+
+all_hashtags = set()
+for lst in df['hashtags_parsed']:
+    all_hashtags.update(lst)
+all_hashtags = sorted(all_hashtags)
+print(f"   ✅ Unique hashtags: {len(all_hashtags)}")
+
+# ============================================================================
+# STEP 3: BUILD NODE MAPPINGS
+# ============================================================================
+print("\n[STEP 3] Building node mappings...")
+
+# --- POST nodes (only posts that have embeddings) ---
+post_nodes = [pid for pid in post_ids_emb if pid in df['post_id'].values]
+post_to_idx = {pid: i for i, pid in enumerate(post_nodes)}
+print(f"   Posts:              {len(post_to_idx)}")
+
+# --- USER nodes ---
+all_users = sorted(df['user_id'].unique())
+user_to_idx = {uid: i for i, uid in enumerate(all_users)}
+print(f"   Users:              {len(user_to_idx)}")
+
+# --- HASHTAG nodes ---
+hashtag_to_idx = {h: i for i, h in enumerate(all_hashtags)}
+print(f"   Hashtags:           {len(hashtag_to_idx)}")
+
+# --- COMMUNITY nodes (from cluster_label) ---
+community_ids = sorted(df['cluster_label'].dropna().unique().astype(int))
+community_to_idx = {cid: i for i, cid in enumerate(community_ids)}
+print(f"   Communities:        {len(community_to_idx)}")
+
+# --- DECEPTION CLUSTER nodes (anomaly severity groups) ---
+# Group: 0=high_anomaly (critical+high), 1=medium, 2=low_anomaly
+# We create one deception cluster node per unique (user risk group) combination
+# to represent coordinated behaviour groups
+deception_levels = ['critical', 'high']
+deception_posts = anomaly_df[anomaly_df['anomaly_level'].isin(deception_levels)].copy()
+
+# Group deception clusters by user — each user gets assigned to a cluster
+# based on their dominant anomaly pattern
+user_deception_map = {}
+for user_id, group in deception_posts.groupby('user_id'):
+    dominant = group['anomaly_level'].mode()[0]
+    user_deception_map[user_id] = dominant
+
+# Create deception cluster nodes: one per unique (anomaly_level) × (community)
+deception_cluster_ids = []
+post_to_deception = {}  # post_id → deception_cluster_local_idx
+
+deception_posts_with_community = deception_posts.merge(
+    df[['post_id', 'cluster_label']], on='post_id', how='left'
+)
+
+dc_key_to_idx = {}
+for _, row in deception_posts_with_community.iterrows():
+    key = (str(row['anomaly_level']), int(row['cluster_label']) if not pd.isna(row['cluster_label']) else -1)
+    if key not in dc_key_to_idx:
+        dc_key_to_idx[key] = len(dc_key_to_idx)
+    post_to_deception[str(row['post_id'])] = dc_key_to_idx[key]
+
+deception_cluster_to_idx = dc_key_to_idx
+n_deception_clusters = len(deception_cluster_to_idx)
+print(f"   Deception clusters: {n_deception_clusters}")
+
+node_mappings = {
+    'post':               post_to_idx,
+    'user':               user_to_idx,
+    'hashtag':            hashtag_to_idx,
+    'community':          community_to_idx,
+    'deception_cluster':  deception_cluster_to_idx
+}
+
+# ============================================================================
+# STEP 4: BUILD NODE FEATURES
+# ============================================================================
+print("\n[STEP 4] Building node features...")
+
+# --- POST features: z_out concatenated with v_mismatch → [N_posts, 256] ---
+post_feat_list = []
+for pid in post_nodes:
+    if pid in post_id_to_emb_idx:
+        idx = post_id_to_emb_idx[pid]
+        feat = torch.cat([z_out[idx], v_mismatch[idx]], dim=0)  # [256]
+    else:
+        feat = torch.zeros(256)
+    post_feat_list.append(feat)
+post_features = torch.stack(post_feat_list)  # [N_posts, 256]
+print(f"   Post features:     {post_features.shape}")
+
+# --- USER features: mean of post embeddings + metadata features ---
+user_feat_dim = 256 + 6  # mean post embedding + 6 metadata features
+user_feat_list = []
+
+# Build user → post indices lookup
+user_post_lists = defaultdict(list)
+for i, pid in enumerate(post_nodes):
+    row = df[df['post_id'] == pid]
+    if len(row) == 0:
+        continue
+    uid = str(row.iloc[0]['user_id'])
+    user_post_lists[uid].append(i)
+
+for uid in all_users:
+    # Mean embedding of user's posts
+    if uid in user_post_lists and len(user_post_lists[uid]) > 0:
+        idxs = user_post_lists[uid]
+        mean_emb = post_features[idxs].mean(dim=0)  # [256]
+    else:
+        mean_emb = torch.zeros(256)
+
+    # Metadata features
+    user_posts = df[df['user_id'] == uid]
+    if len(user_posts) > 0:
+        n_posts       = float(len(user_posts))
+        n_hashtags    = float(user_posts['hashtags_count'].mean())
+        n_mentions    = float(user_posts['user_mentions_count'].mean())
+        n_urls        = float(user_posts['urls_count'].mean())
+        n_emojis      = float(user_posts['emojis_count'].mean())
+        contradiction = float(user_posts['contradiction_score'].mean())
+        meta_feat = torch.tensor([n_posts, n_hashtags, n_mentions,
+                                   n_urls, n_emojis, contradiction], dtype=torch.float32)
+    else:
+        meta_feat = torch.zeros(6)
+
+    user_feat_list.append(torch.cat([mean_emb, meta_feat]))
+
+user_features = torch.stack(user_feat_list)  # [N_users, 262]
+print(f"   User features:     {user_features.shape}")
+
+# --- HASHTAG features: mean embedding of posts containing each hashtag ---
+hashtag_post_map = defaultdict(list)
+for i, pid in enumerate(post_nodes):
+    row = df[df['post_id'] == pid]
+    if len(row) == 0:
+        continue
+    for h in row.iloc[0]['hashtags_parsed']:
+        if h in hashtag_to_idx:
+            hashtag_post_map[h].append(i)
+
+hashtag_feat_list = []
+for h in all_hashtags:
+    if h in hashtag_post_map and len(hashtag_post_map[h]) > 0:
+        idxs = hashtag_post_map[h]
+        feat = post_features[idxs].mean(dim=0)  # [256]
+    else:
+        feat = torch.zeros(256)
+    hashtag_feat_list.append(feat)
+hashtag_features = torch.stack(hashtag_feat_list)  # [N_hashtags, 256]
+print(f"   Hashtag features:  {hashtag_features.shape}")
+
+# --- COMMUNITY features: mean embedding of posts in each community ---
+community_post_map = defaultdict(list)
+for i, pid in enumerate(post_nodes):
+    row = df[df['post_id'] == pid]
+    if len(row) == 0:
+        continue
+    cl = row.iloc[0]['cluster_label']
+    if not pd.isna(cl):
+        community_post_map[int(cl)].append(i)
+
+community_feat_list = []
+for cid in community_ids:
+    if cid in community_post_map and len(community_post_map[cid]) > 0:
+        idxs = community_post_map[cid]
+        feat = post_features[idxs].mean(dim=0)
+    else:
+        feat = torch.zeros(256)
+    community_feat_list.append(feat)
+community_features = torch.stack(community_feat_list)  # [N_communities, 256]
+print(f"   Community features:{community_features.shape}")
+
+# --- DECEPTION CLUSTER features: mean embedding of posts in each cluster ---
+dc_post_map = defaultdict(list)
+for i, pid in enumerate(post_nodes):
+    if pid in post_to_deception:
+        dc_idx = post_to_deception[pid]
+        dc_post_map[dc_idx].append(i)
+
+dc_feat_list = []
+for dc_idx in range(n_deception_clusters):
+    if dc_idx in dc_post_map and len(dc_post_map[dc_idx]) > 0:
+        idxs = dc_post_map[dc_idx]
+        # Also include anomaly score as extra feature
+        anomaly_scores_dc = []
+        for pidx in idxs:
+            pid = post_nodes[pidx]
+            row = anomaly_df[anomaly_df['post_id'] == pid]
+            if len(row) > 0:
+                anomaly_scores_dc.append(row.iloc[0]['anomaly_score'])
+        mean_anomaly = float(np.mean(anomaly_scores_dc)) if anomaly_scores_dc else 0.0
+        feat = post_features[idxs].mean(dim=0)
+    else:
+        feat = torch.zeros(256)
+    dc_feat_list.append(feat)
+dc_features = torch.stack(dc_feat_list)  # [N_dc, 256]
+print(f"   Deception cluster: {dc_features.shape}")
+
+node_features = {
+    'post':              post_features,
+    'user':              user_features,
+    'hashtag':           hashtag_features,
+    'community':         community_features,
+    'deception_cluster': dc_features
+}
+
+# ============================================================================
+# STEP 5: BUILD EDGES
+# ============================================================================
+print("\n[STEP 5] Building edges...")
+
+edge_dict = {}
+
+# Helper to create edge tensor
+def make_edge(src_list, dst_list, weight_list=None):
+    src = torch.tensor(src_list, dtype=torch.long)
+    dst = torch.tensor(dst_list, dtype=torch.long)
+    edge_index = torch.stack([src, dst], dim=0)
+    if weight_list is None:
+        weights = torch.ones(len(src_list), dtype=torch.float32)
+    else:
+        weights = torch.tensor(weight_list, dtype=torch.float32)
+    return edge_index, weights
+
+# ── Edge 1: user CREATES post ─────────────────────────────────────────────
+print("   Building user → creates → post edges...")
+uc_src, uc_dst = [], []
+for i, pid in enumerate(post_nodes):
+    row = df[df['post_id'] == pid]
+    if len(row) == 0:
+        continue
+    uid = str(row.iloc[0]['user_id'])
+    if uid in user_to_idx:
+        uc_src.append(user_to_idx[uid])
+        uc_dst.append(i)
+
+edge_dict[('user', 'creates', 'post')] = make_edge(uc_src, uc_dst)
+print(f"   ✅ user→creates→post: {len(uc_src)} edges")
+
+# ── Edge 2: post CONTAINS hashtag ─────────────────────────────────────────
+print("   Building post → contains → hashtag edges...")
+ph_src, ph_dst = [], []
+for i, pid in enumerate(post_nodes):
+    row = df[df['post_id'] == pid]
+    if len(row) == 0:
+        continue
+    for h in row.iloc[0]['hashtags_parsed']:
+        if h in hashtag_to_idx:
+            ph_src.append(i)
+            ph_dst.append(hashtag_to_idx[h])
+
+edge_dict[('post', 'contains', 'hashtag')] = make_edge(ph_src, ph_dst)
+print(f"   ✅ post→contains→hashtag: {len(ph_src)} edges")
+
+# ── Edge 3: hashtag CO-OCCURS WITH hashtag ────────────────────────────────
+print("   Building hashtag → cooccurs_with → hashtag edges...")
+hh_src, hh_dst, hh_weights = [], [], []
+cooccur_counts = defaultdict(int)
+
+for _, row in df.iterrows():
+    hashtags = row['hashtags_parsed']
+    for i_h in range(len(hashtags)):
+        for j_h in range(i_h + 1, len(hashtags)):
+            h1, h2 = hashtags[i_h], hashtags[j_h]
+            if h1 in hashtag_to_idx and h2 in hashtag_to_idx:
+                key = (min(h1, h2), max(h1, h2))
+                cooccur_counts[key] += 1
+
+# Only keep co-occurrences that happen more than once (reduce noise)
+for (h1, h2), count in cooccur_counts.items():
+    if count >= 2:
+        idx1, idx2 = hashtag_to_idx[h1], hashtag_to_idx[h2]
+        hh_src.extend([idx1, idx2])
+        hh_dst.extend([idx2, idx1])
+        hh_weights.extend([float(count), float(count)])
+
+if len(hh_src) > 0:
+    edge_dict[('hashtag', 'cooccurs_with', 'hashtag')] = make_edge(hh_src, hh_dst, hh_weights)
+    print(f"   ✅ hashtag→cooccurs_with→hashtag: {len(hh_src)} edges")
+else:
+    print(f"   ⚠️  No hashtag co-occurrences found (all unique)")
+
+# ── Edge 4: user INTERACTS WITH user (via shared hashtags/mentions) ────────
+print("   Building user → interacts_with → user edges...")
+uu_src, uu_dst, uu_weights = [], [], []
+interaction_counts = defaultdict(int)
+
+# Via shared hashtags
+hashtag_users = defaultdict(set)
+for _, row in df.iterrows():
+    uid = str(row['user_id'])
+    for h in row['hashtags_parsed']:
+        hashtag_users[h].add(uid)
+
+for h, users in hashtag_users.items():
+    users = list(users)
+    for i_u in range(len(users)):
+        for j_u in range(i_u + 1, len(users)):
+            u1, u2 = users[i_u], users[j_u]
+            if u1 in user_to_idx and u2 in user_to_idx:
+                key = (min(u1, u2), max(u1, u2))
+                interaction_counts[key] += 1
+
+# Via mentions
+for _, row in df.iterrows():
+    uid = str(row['user_id'])
+    for mention in row['mentions_parsed']:
+        # Find if mentioned user exists in our dataset
+        mentioned_rows = df[df['username'].str.lower() == mention.lower()]
+        if len(mentioned_rows) > 0:
+            mentioned_uid = str(mentioned_rows.iloc[0]['user_id'])
+            if uid in user_to_idx and mentioned_uid in user_to_idx and uid != mentioned_uid:
+                key = (min(uid, mentioned_uid), max(uid, mentioned_uid))
+                interaction_counts[key] += 1
+
+# Only keep interactions that happen at least twice
+for (u1, u2), count in interaction_counts.items():
+    if count >= 2:
+        idx1, idx2 = user_to_idx[u1], user_to_idx[u2]
+        uu_src.extend([idx1, idx2])
+        uu_dst.extend([idx2, idx1])
+        uu_weights.extend([float(count), float(count)])
+
+if len(uu_src) > 0:
+    edge_dict[('user', 'interacts_with', 'user')] = make_edge(uu_src, uu_dst, uu_weights)
+    print(f"   ✅ user→interacts_with→user: {len(uu_src)} edges")
+else:
+    # Create sparse fallback — users who posted same hashtag at least once
+    print("   ⚠️  Few interactions found, using single-occurrence threshold...")
+    for (u1, u2), count in interaction_counts.items():
+        idx1, idx2 = user_to_idx[u1], user_to_idx[u2]
+        uu_src.extend([idx1, idx2])
+        uu_dst.extend([idx2, idx1])
+        uu_weights.extend([1.0, 1.0])
+    if len(uu_src) > 0:
+        edge_dict[('user', 'interacts_with', 'user')] = make_edge(uu_src, uu_dst, uu_weights)
+        print(f"   ✅ user→interacts_with→user: {len(uu_src)} edges (single-occurrence)")
+    else:
+        print(f"   ⚠️  No user interactions found — skipping this edge type")
+
+# ── Edge 5: post BELONGS TO community ─────────────────────────────────────
+print("   Building post → belongs_to → community edges...")
+pc_src, pc_dst = [], []
+for i, pid in enumerate(post_nodes):
+    row = df[df['post_id'] == pid]
+    if len(row) == 0:
+        continue
+    cl = row.iloc[0]['cluster_label']
+    if not pd.isna(cl) and int(cl) in community_to_idx:
+        pc_src.append(i)
+        pc_dst.append(community_to_idx[int(cl)])
+
+edge_dict[('post', 'belongs_to', 'community')] = make_edge(pc_src, pc_dst)
+print(f"   ✅ post→belongs_to→community: {len(pc_src)} edges")
+
+# ── Edge 6: post FLAGGED IN deception_cluster ──────────────────────────────
+print("   Building post → flagged_in → deception_cluster edges...")
+pd_src, pd_dst = [], []
+for i, pid in enumerate(post_nodes):
+    if pid in post_to_deception:
+        pd_src.append(i)
+        pd_dst.append(post_to_deception[pid])
+
+if len(pd_src) > 0:
+    edge_dict[('post', 'flagged_in', 'deception_cluster')] = make_edge(pd_src, pd_dst)
+    print(f"   ✅ post→flagged_in→deception_cluster: {len(pd_src)} edges")
+else:
+    print(f"   ⚠️  No deception cluster assignments found")
+
+# ── Edge 7: deception_cluster COLLUDES WITH deception_cluster ──────────────
+print("   Building deception_cluster → colludes_with → deception_cluster edges...")
+dcd_src, dcd_dst = [], []
+
+# Two deception clusters collude if they share users
+dc_to_users = defaultdict(set)
+for pid, dc_idx in post_to_deception.items():
+    row = df[df['post_id'] == pid]
+    if len(row) > 0:
+        uid = str(row.iloc[0]['user_id'])
+        dc_to_users[dc_idx].add(uid)
+
+dc_indices = list(range(n_deception_clusters))
+for i in range(len(dc_indices)):
+    for j in range(i + 1, len(dc_indices)):
+        shared = dc_to_users[i] & dc_to_users[j]
+        if len(shared) > 0:
+            dcd_src.extend([i, j])
+            dcd_dst.extend([j, i])
+
+if len(dcd_src) > 0:
+    edge_dict[('deception_cluster', 'colludes_with', 'deception_cluster')] = \
+        make_edge(dcd_src, dcd_dst)
+    print(f"   ✅ deception_cluster→colludes_with→deception_cluster: {len(dcd_src)} edges")
+else:
+    print(f"   ⚠️  No colluding deception clusters found")
+
+# ============================================================================
+# STEP 6: VALIDATE GRAPH
+# ============================================================================
+print("\n[STEP 6] Validating graph...")
+
+all_valid = True
+for etype, (edge_index, edge_weight) in edge_dict.items():
+    src_type, rel, dst_type = etype
+    n_src = node_features[src_type].shape[0]
+    n_dst = node_features[dst_type].shape[0]
+
+    max_src = edge_index[0].max().item() if edge_index.shape[1] > 0 else -1
+    max_dst = edge_index[1].max().item() if edge_index.shape[1] > 0 else -1
+
+    valid = (max_src < n_src) and (max_dst < n_dst)
+    status = "✅" if valid else "❌"
+    if not valid:
+        all_valid = False
+    print(f"   {status} {src_type}→{rel}→{dst_type}: "
+          f"{edge_index.shape[1]} edges | "
+          f"max_src={max_src}/{n_src-1} | max_dst={max_dst}/{n_dst-1}")
+
+if all_valid:
+    print("\n   ✅ All edge indices are valid")
+else:
+    print("\n   ❌ Some edges have out-of-bounds indices — fixing...")
+    for etype in list(edge_dict.keys()):
+        src_type, rel, dst_type = etype
+        edge_index, edge_weight = edge_dict[etype]
+        n_src = node_features[src_type].shape[0]
+        n_dst = node_features[dst_type].shape[0]
+        valid_mask = (
+            (edge_index[0] >= 0) & (edge_index[0] < n_src) &
+            (edge_index[1] >= 0) & (edge_index[1] < n_dst)
         )
-        
-        # 5. Task-specific heads
-        
-        # 5a. Node classification (per node type)
-        self.node_classifiers = nn.ModuleDict()
-        for ntype in ['post', 'user']:  # Only classify posts and users
-            self.node_classifiers[ntype] = nn.Sequential(
-                nn.Linear(hidden_dim, hidden_dim // 2),
-                nn.ReLU(),
-                nn.Dropout(0.2),
-                nn.Linear(hidden_dim // 2, num_classes)
-            )
-        
-        # 5b. Community risk scoring
-        self.risk_scorer = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.ReLU(),
-            nn.Linear(hidden_dim // 2, 1),
-            nn.Sigmoid()
-        )
-        
-        # 5c. Deception cluster detection
-        self.deception_detector = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim // 2),
-            nn.ReLU(),
-            nn.Linear(hidden_dim // 2, 1),
-            nn.Sigmoid()
-        )
-        
-        # 5d. Edge classification (for suspicious chains/interactions)
-        self.edge_classifiers = nn.ModuleDict()
-        edge_types_to_classify = [
-            'user_interacts_with_user',
-            'post_flagged_in_deception_cluster',
-            'deception_cluster_colludes_with_deception_cluster'
-        ]
-        for edge_type in edge_types_to_classify:
-            self.edge_classifiers[edge_type] = nn.Sequential(
-                nn.Linear(hidden_dim * 2, hidden_dim),
-                nn.ReLU(),
-                nn.Dropout(0.2),
-                nn.Linear(hidden_dim, 1),
-                nn.Sigmoid()
-            )
-    
-    def classify_edges(self, fused_embeddings, edge_dict, edge_types_to_classify):
-        """
-        Classify specific edge types as suspicious or not.
-        
-        Args:
-            fused_embeddings: dict {node_type: embeddings [num_nodes, hidden_dim]}
-            edge_dict: dict {(src_type, rel, dst_type): (edge_index, edge_weight)}
-            edge_types_to_classify: list of (src_type, rel_type, dst_type) tuples
-            
-        Returns:
-            dict {edge_type: edge_scores [num_edges]}
-        """
-        edge_scores = {}
-        
-        for (src_type, rel_type, dst_type) in edge_types_to_classify:
-            # Check if edge type exists in graph
-            if (src_type, rel_type, dst_type) not in edge_dict:
-                continue
-            
-            edge_index, edge_weight = edge_dict[(src_type, rel_type, dst_type)]
-            src_nodes = edge_index[0]
-            dst_nodes = edge_index[1]
-            
-            # Validate indices
-            if src_type not in fused_embeddings or dst_type not in fused_embeddings:
-                continue
-            
-            src_max = fused_embeddings[src_type].shape[0]
-            dst_max = fused_embeddings[dst_type].shape[0]
-            
-            valid = (
-                (src_nodes >= 0) & (src_nodes < src_max) &
-                (dst_nodes >= 0) & (dst_nodes < dst_max)
-            )
-            
-            if valid.sum() == 0:
-                continue
-            
-            src_nodes = src_nodes[valid]
-            dst_nodes = dst_nodes[valid]
-            
-            # Get embeddings and ensure no NaNs
-            src_emb = fused_embeddings[src_type][src_nodes]
-            dst_emb = fused_embeddings[dst_type][dst_nodes]
-            
-            # Check for NaN embeddings and replace with zeros
-            if torch.isnan(src_emb).any():
-                src_emb = torch.nan_to_num(src_emb, nan=0.0)
-            if torch.isnan(dst_emb).any():
-                dst_emb = torch.nan_to_num(dst_emb, nan=0.0)
-            
-            # Concatenate source and destination embeddings
-            edge_features = torch.cat([src_emb, dst_emb], dim=-1)
-            
-            # Classify - construct key exactly as in __init__
-            classifier_key = f"{src_type}_{rel_type}_{dst_type}"
-            
-            if classifier_key in self.edge_classifiers:
-                scores = self.edge_classifiers[classifier_key](edge_features).squeeze(-1)
-                
-                # Ensure no NaN scores
-                scores = torch.nan_to_num(scores, nan=0.5)
-                
-                edge_scores[(src_type, rel_type, dst_type)] = scores
-        
-        return edge_scores
-    
-    def forward(self, node_features, edge_dict, timestamps=None, current_time=None, 
-                classify_edges=False):
-        """
-        Forward pass through the temporal heterogeneous GNN.
-        
-        Args:
-            node_features: dict {node_type: feature_tensor}
-            edge_dict: dict {(src, rel, dst): (edge_index, edge_weight)}
-            timestamps: dict {node_type: timestamp_tensor} - optional
-            current_time: scalar - current timestamp - optional
-            classify_edges: bool - whether to perform edge classification
-            
-        Returns:
-            dict with predictions for each task
-        """
-        # 1. Project to common space
-        projected = {}
-        for ntype, features in node_features.items():
-            projected[ntype] = self.input_projections[ntype](features)
-        
-        # Store for temporal update
-        initial_embeddings = {k: v.clone() for k, v in projected.items()}
-        
-        # 2. Heterogeneous message passing
-        current_embeddings = projected
-        for layer in self.hetero_layers:
-            current_embeddings = layer(current_embeddings, edge_dict)
-        
-        hetero_embeddings = current_embeddings
-        
-        # 3. Temporal evolution (if timestamps provided)
-        if timestamps is not None and current_time is not None:
-            temporal_embeddings = {}
-            for ntype in current_embeddings.keys():
-                if ntype in self.temporal_modules:
-                    temporal_embeddings[ntype] = self.temporal_modules[ntype](
-                        initial_embeddings[ntype],
-                        hetero_embeddings[ntype],
-                        timestamps[ntype],
-                        current_time
-                    )
-                else:
-                    temporal_embeddings[ntype] = hetero_embeddings[ntype]
-        else:
-            temporal_embeddings = hetero_embeddings
-        
-        # 4. Fusion of temporal + heterogeneous
-        fused_embeddings = {}
-        for ntype in current_embeddings.keys():
-            concat = torch.cat([
-                hetero_embeddings[ntype],
-                temporal_embeddings[ntype]
-            ], dim=-1)
-            fused_embeddings[ntype] = self.fusion(concat)
-        
-        # 5. Task-specific predictions
-        outputs = {'embeddings': fused_embeddings}
-        
-        # 5a. Node classification (posts and users)
-        outputs['node_logits'] = {}
-        for ntype in ['post', 'user']:
-            if ntype in fused_embeddings:
-                outputs['node_logits'][ntype] = self.node_classifiers[ntype](
-                    fused_embeddings[ntype]
-                )
-        
-        # 5b. Community risk scores
-        if 'community' in fused_embeddings:
-            outputs['community_risk'] = self.risk_scorer(
-                fused_embeddings['community']
-            ).squeeze(-1)
-        
-        # 5c. Deception cluster detection
-        if 'deception_cluster' in fused_embeddings:
-            outputs['deception_score'] = self.deception_detector(
-                fused_embeddings['deception_cluster']
-            ).squeeze(-1)
-        
-        # 5d. Edge classification (optional)
-        if classify_edges:
-            edge_types_to_classify = [
-                ('user', 'interacts_with', 'user'),
-                ('post', 'flagged_in', 'deception_cluster'),
-                ('deception_cluster', 'colludes_with', 'deception_cluster')
-            ]
-            outputs['edge_scores'] = self.classify_edges(
-                fused_embeddings, edge_dict, edge_types_to_classify
-            )
-        
-        return outputs
-
+        edge_dict[etype] = (edge_index[:, valid_mask], edge_weight[valid_mask])
+    print("   ✅ Fixed")
 
 # ============================================================================
-# DATA LOADER (SIMPLIFIED - USES PRE-CONVERTED PYTORCH EDGES)
+# STEP 7: SAVE GRAPH
 # ============================================================================
+print("\n[STEP 7] Saving graph...")
 
-def load_heterogeneous_graph(graph_dir="heterogeneous_graph"):
-    """
-    Load the constructed heterogeneous graph.
-    
-    Returns:
-        node_features: dict {node_type: feature_tensor}
-        edge_dict: dict {(src_type, rel, dst_type): (edge_index, edge_weight)}
-        node_mappings: dict {node_type: {original_id: local_id}}
-    """
-    graph_dir = Path(graph_dir)
-    
-    print(f"Loading from {graph_dir}...")
-    
-    # Load node features
-    node_features = torch.load(graph_dir / "node_features.pt")
-    print(f"✅ Loaded node features:")
-    for ntype, feats in node_features.items():
-        print(f"   {ntype}: {feats.shape}")
-    
-    # Load PRE-CONVERTED PyTorch edges (this is the key fix!)
-    edge_dict = torch.load(graph_dir / "edge_dict.pt")
-    print(f"✅ Loaded edge dictionary with {len(edge_dict)} edge types:")
-    for etype, (ei, ew) in edge_dict.items():
-        print(f"   {etype}: {ei.shape[1]} edges")
-    
-    # Load node mappings (for reference)
-    with open(graph_dir / "node_mappings.pkl", "rb") as f:
-        node_mappings = pickle.load(f)
-    
-    return node_features, edge_dict, node_mappings
+torch.save(node_features, output_dir / "node_features.pt")
+print(f"   ✅ Saved node_features.pt")
 
+torch.save(edge_dict, output_dir / "edge_dict.pt")
+print(f"   ✅ Saved edge_dict.pt")
+
+with open(output_dir / "node_mappings.pkl", "wb") as f:
+    pickle.dump(node_mappings, f)
+print(f"   ✅ Saved node_mappings.pkl")
+
+# Also save timestamps per node type for temporal GNN
+post_timestamps = torch.zeros(len(post_nodes), dtype=torch.float32)
+for i, pid in enumerate(post_nodes):
+    row = anomaly_df[anomaly_df['post_id'] == pid]
+    if len(row) > 0:
+        post_timestamps[i] = float(row.iloc[0]['timestamp'])
+
+user_timestamps = torch.zeros(len(all_users), dtype=torch.float32)
+for uid, idx in user_to_idx.items():
+    user_posts = anomaly_df[anomaly_df['user_id'] == uid]
+    if len(user_posts) > 0:
+        user_timestamps[idx] = float(user_posts['timestamp'].max())
+
+timestamps_dict = {
+    'post': post_timestamps,
+    'user': user_timestamps,
+    'hashtag': torch.zeros(len(all_hashtags), dtype=torch.float32),
+    'community': torch.zeros(len(community_ids), dtype=torch.float32),
+    'deception_cluster': torch.zeros(n_deception_clusters, dtype=torch.float32)
+}
+torch.save(timestamps_dict, output_dir / "node_timestamps.pt")
+print(f"   ✅ Saved node_timestamps.pt")
+
+# Save post labels for training
+post_labels = torch.zeros(len(post_nodes), dtype=torch.long)
+label_map = {'fake': 1, 'real': 0}
+for i, pid in enumerate(post_nodes):
+    row = df[df['post_id'] == pid]
+    if len(row) > 0:
+        lbl = row.iloc[0]['label']
+        post_labels[i] = label_map.get(str(lbl).lower(), 0)
+
+torch.save(post_labels, output_dir / "post_labels.pt")
+print(f"   ✅ Saved post_labels.pt")
+print(f"      Fake: {post_labels.sum().item()}, Real: {(post_labels == 0).sum().item()}")
 
 # ============================================================================
-# EXAMPLE USAGE
+# STEP 8: PRINT SUMMARY
 # ============================================================================
+print("\n" + "=" * 80)
+print("✅ HETEROGENEOUS GRAPH BUILT SUCCESSFULLY")
+print("=" * 80)
 
-if __name__ == "__main__":
-    print("="*80)
-    print("TEMPORAL HETEROGENEOUS GNN - MODEL TEST")
-    print("="*80)
-    
-    # Load graph (now much simpler!)
-    print("\n[1/3] Loading heterogeneous graph...")
-    node_features, edge_dict, node_mappings = load_heterogeneous_graph()
-    
-    # Initialize model
-    print("\n[2/3] Initializing model...")
-    node_dims = {ntype: features.shape[1] for ntype, features in node_features.items()}
-    relation_types = list(edge_dict.keys())
-    
-    model = TemporalHeterogeneousGNN(
-        node_dims=node_dims,
-        hidden_dim=256,
-        num_layers=3,
-        relation_types=relation_types,
-        num_classes=2
-    ).to(device)
-    
-    print(f"✅ Model initialized:")
-    total_params = sum(p.numel() for p in model.parameters())
-    print(f"   Parameters: {total_params:,}")
-    
-    # Test forward pass
-    print("\n[3/3] Testing forward pass...")
-    
-    # Move to device
-    node_features_device = {k: v.to(device) for k, v in node_features.items()}
-    edge_dict_device = {k: (ei.to(device), ew.to(device)) 
-                       for k, (ei, ew) in edge_dict.items()}
-    
-    # Test without edge classification
-    print("\n" + "="*80)
-    print("Test 1: Forward pass WITHOUT edge classification")
-    print("="*80)
-    
-    with torch.no_grad():
-        outputs = model(node_features_device, edge_dict_device, classify_edges=False)
-        
-        print("\n✅ Forward pass successful!")
-        print(f"\n   Outputs:")
-        for key, value in outputs.items():
-            if isinstance(value, dict):
-                print(f"   {key}:")
-                for k, v in value.items():
-                    print(f"      {k}: {v.shape}")
-            elif isinstance(value, torch.Tensor):
-                print(f"   {key}: {value.shape}")
-    
-    # Test with edge classification
-    print("\n" + "="*80)
-    print("Test 2: Forward pass WITH edge classification")
-    print("="*80)
-    
-    with torch.no_grad():
-        outputs_with_edges = model(node_features_device, edge_dict_device, classify_edges=True)
-        
-        print("\n✅ Forward pass with edge classification successful!")
-        
-        if "edge_scores" in outputs_with_edges:
-            edge_scores_dict = outputs_with_edges["edge_scores"]
-            
-            if len(edge_scores_dict) > 0:
-                print(f"\n   Edge Classification Results:")
-                print(f"   Found {len(edge_scores_dict)} edge type(s) classified\n")
-                
-                for etype, scores in edge_scores_dict.items():
-                    print(f"   📊 {etype}:")
-                    print(f"      • Number of edges: {len(scores)}")
-                    print(f"      • Score range: [{scores.min():.4f}, {scores.max():.4f}]")
-                    print(f"      • Mean score: {scores.mean():.4f}")
-                    print(f"      • Std dev: {scores.std():.4f}")
-                    
-                    # Classify edges as suspicious or normal (threshold = 0.5)
-                    suspicious = (scores > 0.5).sum().item()
-                    normal = (scores <= 0.5).sum().item()
-                    
-                    print(f"      • Suspicious edges (>0.5): {suspicious} ({suspicious/len(scores)*100:.1f}%)")
-                    print(f"      • Normal edges (≤0.5): {normal} ({normal/len(scores)*100:.1f}%)")
-                    
-                    # Show distribution
-                    print(f"      • Score distribution:")
-                    bins = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
-                    for i in range(len(bins)-1):
-                        count = ((scores > bins[i]) & (scores <= bins[i+1])).sum().item()
-                        print(f"        [{bins[i]:.1f}-{bins[i+1]:.1f}]: {count} edges")
-                    print()
-            else:
-                print("\n   ⚠️  Edge classification returned empty dictionary")
-        else:
-            print("   ⚠️  No 'edge_scores' key in outputs")
-    
-    print("\n" + "="*80)
-    print("✅ ALL TESTS PASSED!")
-    print("="*80)
-    
-    # Create summary statistics
-    print(f"\n📊 Model Summary:")
-    print(f"   Total Parameters: {total_params:,}")
-    print(f"   Hidden Dimension: 256")
-    print(f"   Message Passing Layers: 3")
-    print(f"\n   Graph Statistics:")
-    print(f"      Nodes: {sum(v.shape[0] for v in node_features.values()):,}")
-    print(f"      Edges: {sum(ei.shape[1] for ei, _ in edge_dict.values()):,}")
-    print(f"      Node Types: {len(node_features)}")
-    print(f"      Edge Types: {len(edge_dict)}")
-    
-    print(f"\n   Model Capabilities:")
-    print(f"       Node Classification (posts, users)")
-    print(f"      Community Risk Scoring")
-    print(f"      Deception Cluster Detection")
-    print(f"      Edge Classification (user interactions, suspicious chains)")
-    
-    print(f"\n Ready for training! Next: train_temporal_hetero_gnn.py")
+total_nodes = sum(v.shape[0] for v in node_features.values())
+total_edges = sum(ei.shape[1] for ei, _ in edge_dict.values())
+
+summary = f"""
+Graph Statistics:
+{'='*50}
+Node Types:
+"""
+for ntype, feats in node_features.items():
+    summary += f"  {ntype:20s}: {feats.shape[0]:6d} nodes, {feats.shape[1]}D features\n"
+
+summary += f"\nEdge Types:\n"
+for (src, rel, dst), (ei, ew) in edge_dict.items():
+    summary += f"  {src}→{rel}→{dst}: {ei.shape[1]} edges\n"
+
+summary += f"""
+Totals:
+  Total nodes: {total_nodes:,}
+  Total edges: {total_edges:,}
+  Node types:  {len(node_features)}
+  Edge types:  {len(edge_dict)}
+
+Output files:
+  heterogeneous_graph/node_features.pt
+  heterogeneous_graph/edge_dict.pt
+  heterogeneous_graph/node_mappings.pkl
+  heterogeneous_graph/node_timestamps.pt
+  heterogeneous_graph/post_labels.pt
+"""
+
+print(summary)
+
+# Save stats to text file
+with open(output_dir / "graph_stats.txt", "w") as f:
+    f.write(summary)
+print("   ✅ Saved graph_stats.txt")
+print(f"\n   Next step: python3 train_temporal_hetero_gnn.py")

@@ -19,7 +19,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 # -------------------------
 # Load Dataset
 # -------------------------
-df = pd.read_csv("Dataset/twitter/df_train_translated.csv")
+df = pd.read_pickle("Dataset/twitter/df_with_embeddings.pkl")
 
 emotion_model_name = "nateraw/bert-base-uncased-emotion"
 tokenizer_emotion = AutoTokenizer.from_pretrained(emotion_model_name)
@@ -174,9 +174,11 @@ df.to_pickle("Dataset/twitter/df_with_text_emotions_vad.pkl")
 print("✅ Text VAD saved to df_with_text_emotions_vad.pkl")
 
 # -------------------------
-# VAD → Embedding projection
+# VAD → Embedding projection (TRAINED)
 # -------------------------
 import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import TensorDataset, DataLoader
 
 class VADProjector(nn.Module):
     def __init__(self, input_dim=3, hidden_dim=16, output_dim=64):
@@ -187,25 +189,78 @@ class VADProjector(nn.Module):
             nn.Linear(hidden_dim, output_dim),
             nn.LayerNorm(output_dim)
         )
+        self.classifier = nn.Linear(output_dim, 1)
 
     def forward(self, vad_scores):
-        return self.projector(vad_scores)
+        embedding = self.projector(vad_scores)
+        logit = self.classifier(embedding)
+        return embedding, logit
 
+# Load labels
+labels_raw = df['label'].apply(
+    lambda x: 1.0 if x in [1, 'fake', 'Fake'] else 0.0
+).values
+labels_tensor = torch.tensor(labels_raw, dtype=torch.float32).to(device)
+
+# Align VAD to 11844 rows (same as training pipeline)
+n_img = 11844
+text_vad_tensor = torch.tensor(
+    text_vad[:n_img], dtype=torch.float32
+).to(device)
+labels_tensor = labels_tensor[:n_img]
+
+# Dataset and loader
+vad_dataset = TensorDataset(text_vad_tensor, labels_tensor)
+vad_loader = DataLoader(vad_dataset, batch_size=64, shuffle=True)
+
+# Train
 vad_projector = VADProjector(input_dim=3, hidden_dim=16, output_dim=64).to(device)
+optimizer = optim.Adam(vad_projector.parameters(), lr=1e-3)
+criterion = nn.BCEWithLogitsLoss()
+
+print("\nTraining VAD projector...")
+for epoch in range(20):
+    vad_projector.train()
+    epoch_loss = 0
+    for vad_batch, label_batch in vad_loader:
+        optimizer.zero_grad()
+        _, logit = vad_projector(vad_batch)
+        loss = criterion(logit.squeeze(), label_batch)
+        loss.backward()
+        optimizer.step()
+        epoch_loss += loss.item()
+    if (epoch + 1) % 5 == 0:
+        print(f"  Epoch {epoch+1}/20, Loss: {epoch_loss/len(vad_loader):.4f}")
+
+# Generate trained embeddings
 vad_projector.eval()
-
-text_vad_tensor = torch.tensor(text_vad, dtype=torch.float32).to(device)
-
 with torch.no_grad():
-    text_vad_embedding = vad_projector(text_vad_tensor)  # shape: (num_texts, 64)
+    full_vad_tensor = torch.tensor(
+        text_vad[:n_img], dtype=torch.float32
+    ).to(device)
+    text_vad_embedding, _ = vad_projector(full_vad_tensor)
 
-df['text_vad_embedding'] = list(text_vad_embedding.cpu().numpy())
+print(f"\nVAD embedding shape: {text_vad_embedding.shape}")
 
-torch.save(text_vad_embedding.cpu(), "Dataset/twitter/text_vad_embedding.pt")
-print("✅ Text VAD embeddings saved as .pt tensor")
+# Save
+df_aligned = df.iloc[:n_img].copy()
+df_aligned['text_vad_embedding'] = list(
+    text_vad_embedding.cpu().numpy()
+)
 
-df.to_pickle("Dataset/twitter/df_with_text_vad_embedding.pkl")
-print("✅ Full DataFrame with text VAD embeddings saved successfully ✅")
+torch.save(
+    text_vad_embedding.cpu(), 
+    "Dataset/twitter/text_vad_embedding.pt"
+)
+print("✅ Trained VAD embeddings saved as .pt tensor")
 
+# Also save raw 3D VAD for reference
+torch.save(
+    torch.tensor(text_vad[:n_img], dtype=torch.float32),
+    "Dataset/twitter/text_vad_raw.pt"
+)
+print("✅ Raw 3D VAD scores saved as text_vad_raw.pt")
 
+df_aligned.to_pickle("Dataset/twitter/df_with_text_vad_embedding.pkl")
+print("✅ Full DataFrame with trained VAD embeddings saved successfully ✅")
 

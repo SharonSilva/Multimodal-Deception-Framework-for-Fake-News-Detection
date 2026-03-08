@@ -10,7 +10,7 @@ import numpy as np
 import os
 
 # Import your fusion layer
-from rough_work import EmotionAwareFusionLayer
+from rough_work import EmotionAwareFusionLayer, EmotionAwareFakeNewsDetector
 
 # ============================================================================
 # DEVICE SETUP
@@ -45,7 +45,7 @@ class FakeNewsVADDataset(Dataset):
         # Convert labels to numeric
         if self.df['label'].dtype == object:
             print("⚠️  Converting object labels to numeric (0/1)...")
-            self.df['label'] = self.df['label'].map({'fake': 0, 'real': 1})
+            self.df['label'] = self.df['label'].map({'fake': 1, 'real': 0})
         
         self.df['label'] = pd.to_numeric(self.df['label'], errors='coerce').fillna(0)
         self.labels = torch.tensor(self.df['label'].values, dtype=torch.float32)
@@ -75,78 +75,7 @@ class FakeNewsVADDataset(Dataset):
 # ============================================================================
 # EMOTION-AWARE MODEL WITH DIMENSION SAFETY
 # ============================================================================
-class EmotionAwareFakeNewsDetector(nn.Module):
-    """Complete fake news detector with emotion-gated multimodal fusion."""
-
-    def __init__(self, d_text=128, d_image=1024, d_meta=128, d_common=256, mismatch_dim=128):
-        super().__init__()
-
-        # Fusion layer
-        self.fusion = EmotionAwareFusionLayer(
-            d_text=d_text,
-            d_image=d_image,
-            d_meta=d_meta,
-            d_common=d_common,
-            vad_dim=3,
-            meta_affective_dim=128,
-            mismatch_dim=mismatch_dim
-        )
-
-        # Classification head
-        self.classifier = nn.Sequential(
-            nn.Linear(449, 256),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(256, 128),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            nn.Linear(128, 1)
-        )
-
-    def forward(self, h_text, h_image, h_meta, affective_meta, vad_text, vad_image):
-        """
-        Forward pass with dimension checking.
-        
-        Expected shapes:
-            h_text: (B, d_text)
-            h_image: (B, d_image)
-            h_meta: (B, d_meta)
-            affective_meta: (B, meta_affective_dim)
-            vad_text: (B, 3)
-            vad_image: (B, 3)
-        """
-        # Ensure all inputs are 2D
-        h_text = h_text.squeeze() if h_text.ndim > 2 else h_text
-        h_image = h_image.squeeze() if h_image.ndim > 2 else h_image
-        h_meta = h_meta.squeeze() if h_meta.ndim > 2 else h_meta
-        affective_meta = affective_meta.squeeze() if affective_meta.ndim > 2 else affective_meta
-        vad_text = vad_text.squeeze() if vad_text.ndim > 2 else vad_text
-        vad_image = vad_image.squeeze() if vad_image.ndim > 2 else vad_image
-        
-        # If squeezed too much (single sample), add batch dimension back
-        if h_text.ndim == 1:
-            h_text = h_text.unsqueeze(0)
-        if h_image.ndim == 1:
-            h_image = h_image.unsqueeze(0)
-        if h_meta.ndim == 1:
-            h_meta = h_meta.unsqueeze(0)
-        if affective_meta.ndim == 1:
-            affective_meta = affective_meta.unsqueeze(0)
-        if vad_text.ndim == 1:
-            vad_text = vad_text.unsqueeze(0)
-        if vad_image.ndim == 1:
-            vad_image = vad_image.unsqueeze(0)
-        
-        # Call fusion layer
-        z_out, intermediates = self.fusion(h_text, h_image, h_meta, affective_meta, vad_text, vad_image)
-        
-        # Ensure z_out is 2D for classifier
-        if z_out.ndim > 2:
-            z_out = z_out.squeeze(1)
-        
-        # Pass to classifier
-        logits = self.classifier(z_out)
-        return logits, intermediates
+#removed
 
 # ============================================================================
 # SAFE VAD DATA INDEXING
@@ -273,7 +202,7 @@ def train_epoch(model, dataloader, optimizer, criterion, device):
 
         optimizer.zero_grad()
         logits, intermediates = model(h_text, h_image, h_meta, affective_meta, vad_text, vad_image)
-        loss_main = criterion(logits.squeeze(), labels)
+        loss_main = criterion(logits.squeeze(-1), labels)
 
         # Auxiliary losses
         v_mismatch = intermediates['v_mismatch']
@@ -295,7 +224,7 @@ def train_epoch(model, dataloader, optimizer, criterion, device):
         optimizer.step()
 
         total_loss += loss.item()
-        preds = (torch.sigmoid(logits.squeeze()) > 0.5).float()
+        preds = (torch.sigmoid(logits.squeeze(-1)) > 0.5).float()
         correct += (preds == labels).sum().item()
         total += labels.size(0)
         progress.set_postfix(loss=f"{loss.item():.4f}")
@@ -318,10 +247,10 @@ def validate(model, dataloader, criterion, device):
             labels = batch['labels'].to(device)
 
             logits, _ = model(h_text, h_image, h_meta, affective_meta, vad_text, vad_image)
-            loss = criterion(logits.squeeze(), labels)
+            loss = criterion(logits.squeeze(-1), labels)
             total_loss += loss.item()
 
-            preds = (torch.sigmoid(logits.squeeze()) > 0.5).float()
+            preds = (torch.sigmoid(logits.squeeze(-1)) > 0.5).float()
             correct += (preds == labels).sum().item()
             total += labels.size(0)
             progress.set_postfix(loss=f"{loss.item():.4f}")
@@ -338,7 +267,8 @@ def main():
 
     # Load dataset
     print("\n📊 Loading dataset...")
-    df = pd.read_pickle("Dataset/twitter/df_with_text_vad_embedding.pkl")
+    df = pd.read_pickle("Dataset/twitter/df_with_text_emotions_vad.pkl")
+    df = df.iloc[:11844].reset_index(drop=True)
     print(f"  Loaded {len(df)} samples")
     
     # Prepare VAD data

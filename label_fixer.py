@@ -22,10 +22,10 @@ print("STEP 1: INSPECTING YOUR DATASET")
 print("="*80)
 
 try:
-    df = pd.read_pickle("Dataset/twitter/df_with_contradiction_scores.pkl")
+    df = pd.read_pickle("Dataset/twitter/df_preprocessed_with_scores.pkl")
     print(f"✅ Loaded dataset: {df.shape[0]} rows, {df.shape[1]} columns")
 except FileNotFoundError:
-    print("❌ ERROR: Could not find Dataset/twitter/df_with_contradiction_scores.pkl")
+    print("❌ ERROR: Could not find Dataset/twitter/df_preprocessed_with_scores.pkl")
     print("\nAvailable pickle files:")
     for f in os.listdir("Dataset/twitter/"):
         if f.endswith('.pkl'):

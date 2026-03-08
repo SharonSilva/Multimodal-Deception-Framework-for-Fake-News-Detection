@@ -766,7 +766,7 @@ if __name__ == "__main__":
     # ===== STEP 1: Extract VAD from all sources =====
     print("\n📊 Step 1: Extracting VAD data...")
     
-    df = pd.read_pickle("Dataset/twitter/df_with_text_vad_embedding.pkl")
+    df = pd.read_pickle("Dataset/twitter/df_with_text_emotions_vad.pkl")
     
     extractor = VADDataExtractor(device=device)
     vad_data = extractor.prepare_complete_vad_data(

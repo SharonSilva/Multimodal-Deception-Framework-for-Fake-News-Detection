@@ -21,7 +21,7 @@ print(f"⚡ Using device: {DEVICE}")
 # Paths
 # -------------------------
 LABELS_CSV = "Dataset/affectnet/labels.csv"  # columns: 'pth', 'label'
-TRAIN_DIR = "Dataset/affectnet/train"
+TRAIN_DIR = "Dataset/affectnet/Train"
 SAVE_MODEL_PATH = "vit_affectnet_vad.pth"
 VAD_CACHE = "Dataset/affectnet/labels_with_vad.csv"
 
@@ -141,6 +141,24 @@ class VADProjector(nn.Module):
     def forward(self, vad_scores):
         return self.projector(vad_scores)
 
+    def train_supervised(self, vad_tensor, label_tensor, epochs=20, lr=1e-3):
+        optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+        criterion = nn.BCEWithLogitsLoss()
+        classifier = nn.Linear(64, 1).to(vad_tensor.device)
+        optimizer = torch.optim.Adam(
+            list(self.parameters()) + list(classifier.parameters()), lr=lr
+        )
+        for epoch in range(epochs):
+            self.train()
+            optimizer.zero_grad()
+            emb = self.forward(vad_tensor)
+            loss = criterion(classifier(emb).squeeze(), label_tensor)
+            loss.backward()
+            optimizer.step()
+            if (epoch + 1) % 5 == 0:
+                print(f"  VAD projector epoch {epoch+1}/{epochs}, loss: {loss.item():.4f}")
+        self.eval()
+
 # -------------------------
 # Training function (ViT → 3D VAD)
 # -------------------------
@@ -180,8 +198,8 @@ if __name__ == "__main__":
     train_dataset = AffectNetDataset("Dataset/affectnet/train_vad.csv", TRAIN_DIR, transform=transform_train)
     val_dataset = AffectNetDataset("Dataset/affectnet/val_vad.csv", TRAIN_DIR, transform=transform_val)
 
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=4)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=4)
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=0)
 
     # Initialize models
     model = ViTForVAD().to(DEVICE)
@@ -189,14 +207,40 @@ if __name__ == "__main__":
 
     # Train ViT → 3D VAD
     model = train_model(train_loader, val_loader, model, epochs=3, lr=1e-4)
-
+    
+    all_vad_preds = []
+    model.eval()
+    with torch.no_grad():
+        for imgs, _ in tqdm(DataLoader(
+            AffectNetDataset(VAD_CACHE, TRAIN_DIR, transform=transform_val),
+            batch_size=32, shuffle=False, num_workers=0
+        ), desc="Collecting VAD predictions"):
+            imgs = imgs.to(DEVICE)
+            vad_pred, _ = model(imgs)
+            all_vad_preds.extend(vad_pred.cpu())
+            
+    assert len(all_vad_preds) == len(labels_df), \
+        f"Mismatch: {len(all_vad_preds)} predictions vs {len(labels_df)} labels"
     # Save models
     torch.save(model.state_dict(), SAVE_MODEL_PATH)
+    # Train VAD projector with supervision signal
+    print("Training VAD projector...")
+    labels_tensor = torch.tensor(
+        labels_df['label'].apply(
+            lambda x: 1.0 if x in [1, 3, 4, 5] else 0.0
+            # happy, angry, surprise, fear = high arousal = 1
+    ).values[:len(all_vad_preds)],
+        dtype=torch.float32
+    ).to(DEVICE)
+
+    vad_preds_tensor = torch.stack(all_vad_preds).to(DEVICE)
+    vad_projector.train_supervised(vad_preds_tensor, labels_tensor)
+
     torch.save(vad_projector.state_dict(), "vad_projector.pth")
     print("✅ VAD model and projector saved.")
 
     # Extract 64D embeddings for downstream tasks
-    dataset_loader = DataLoader(AffectNetDataset(VAD_CACHE, TRAIN_DIR, transform=transform_val), batch_size=32, shuffle=False)
+    dataset_loader = DataLoader(AffectNetDataset(VAD_CACHE, TRAIN_DIR, transform=transform_val), batch_size=16, shuffle=False, num_workers=0)
     all_embeddings = []
     model.eval()
     vad_projector.eval()

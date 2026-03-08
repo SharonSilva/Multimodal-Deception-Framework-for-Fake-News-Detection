@@ -112,16 +112,23 @@ loss_fn = nn.MSELoss()
 vad_projector.train()
 epochs = 10
 
+vad_batch = torch.stack(vad_tensors)        # [N, 3]
+clip_batch = torch.stack(clip_features)     # [N, 512]
+
+from torch.utils.data import TensorDataset, DataLoader
+dataset = TensorDataset(vad_batch, clip_batch)
+loader = DataLoader(dataset, batch_size=256, shuffle=True)
+
 for epoch in range(epochs):
     total_loss = 0
-    for vad, target_feat in zip(vad_tensors, clip_features):
+    for vad_b, clip_b in loader:
         optimizer.zero_grad()
-        proj = vad_projector(vad.unsqueeze(0))
-        loss = loss_fn(proj, target_feat.unsqueeze(0))  # map VAD -> CLIP embedding
+        proj = vad_projector(vad_b)
+        loss = loss_fn(proj, clip_b)
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
-    print(f"Epoch {epoch+1}/{epochs}, Loss: {total_loss/len(vad_tensors):.6f}")
+    print(f"Epoch {epoch+1}/{epochs}, Loss: {total_loss/len(loader):.6f}")
 
 torch.save(vad_projector.state_dict(), "vad_projector.pth")
 vad_projector.eval()
@@ -160,3 +167,29 @@ for img_file in tqdm(os.listdir(IMAGE_FOLDER), desc="Generating final VAD embedd
 df = pd.DataFrame(results)
 df.to_csv(OUTPUT_CSV, index=False)
 print(f"✅ Scene VAD projections saved to {OUTPUT_CSV}")
+
+
+# Load scene VAD
+scene_df = pd.read_csv("Dataset/twitter/scene_emotions_vad_proj.csv")
+scene_df['image_id'] = scene_df['image'].str.replace('.jpg', '', regex=False)
+
+# Load main dataframe
+df = pd.read_csv("Dataset/twitter/df_train_translated.csv")
+
+# Merge
+df = df.merge(
+    scene_df[['image_id', 'valence', 'arousal', 'dominance']], 
+    on='image_id', 
+    how='left'
+)
+
+print(f"Total posts:            {len(df)}")
+print(f"Posts with image VAD:   {df['valence'].notna().sum()}")
+print(f"Posts without image VAD:{df['valence'].isna().sum()}")
+
+print("\nImage VAD by label:")
+print(df.groupby('label')[['valence','arousal','dominance']].mean())
+
+# Save
+df.to_pickle("Dataset/twitter/df_with_image_vad.pkl")
+print("\n✅ Saved to df_with_image_vad.pkl")

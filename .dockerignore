@@ -6,3 +6,12 @@ __pycache__/
 .env
 data/
 logs/
+venv/
+deception-pipeline/
+*.csv
+*.npy
+*.h5
+cnn_embeddings_batches/
+vit_embeddings_batches/
+scene_vectors_twitter*
+prepared_clustering_data*

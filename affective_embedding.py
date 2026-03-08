@@ -92,19 +92,24 @@ class AffectiveEmbeddingGenerator:
             self.vad_text = self.vad_text[:len(self.post_order)]
 
         # ---------------- Face embeddings ----------------
-        df_face = pd.read_pickle(face_vad_path)  # contains 'pth','image_vad_embedding'
-        # Extract image filename from 'pth'
-        df_face['image_filename'] = df_face['pth'].apply(lambda x: x.split('/')[-1])
-        # Merge with post mapping: image_filename -> image_id -> post_id
-        df_face = df_face.merge(df_post_map, left_on='image_filename', right_on='image_id', how='left')
-        face_dim = len(df_face['image_vad_embedding'].iloc[0])
-        self.vad_face = align_embeddings_by_post(
-            df_face,
-            post_id_col='post_id',
-            embedding_col='image_vad_embedding',
-            post_order=self.post_order,
-            zero_fill_dim=face_dim  # fill zeros if missing face
-        )
+        # ---------------- Face embeddings (optional) ----------------
+        try:
+            df_face = pd.read_pickle(face_vad_path)
+            df_face['image_filename'] = df_face['pth'].apply(lambda x: x.split('/')[-1])
+            df_face = df_face.merge(df_post_map, left_on='image_filename', right_on='image_id', how='left')
+            face_dim = len(df_face['image_vad_embedding'].iloc[0])
+            self.vad_face = align_embeddings_by_post(
+                df_face,
+                post_id_col='post_id',
+                embedding_col='image_vad_embedding',
+                post_order=self.post_order,
+                zero_fill_dim=face_dim
+            )
+            print(f"✅ Face VAD loaded: {self.vad_face.shape}")
+        except Exception as e:
+            print(f"⚠️  Face VAD unavailable ({e}) — using zeros")
+            face_dim = 64
+            self.vad_face = torch.zeros(len(self.post_order), face_dim)
 
         # ---------------- Scene embeddings ----------------
         df_scene = pd.read_csv(scene_vad_path)  # contains ['image','vad_embedding']
@@ -116,14 +121,17 @@ class AffectiveEmbeddingGenerator:
         # Infer scene dimension from first row of CSV (before merging)
         scene_dim = len(df_scene['vad_embedding'].iloc[0])
 
+        # Strip .jpg from image column to match image_id format
+        df_scene['image'] = df_scene['image'].str.replace('.jpg', '', regex=False)
+
         # Merge with post mapping: image -> image_id -> post_id
         df_scene = df_scene.merge(df_post_map, left_on='image', right_on='image_id', how='left')
 
         # Convert post_id to int for consistency
-        df_scene['post_id'] = df_scene['post_id'].fillna(-1).astype(int)
+        df_scene['post_id'] = df_scene['post_id'].fillna('__missing__')
 
         # Keep only valid post_ids
-        df_scene_valid = df_scene[df_scene['post_id'] != -1]
+        df_scene_valid = df_scene[df_scene['post_id'] != '__missing__']
 
         # Align embeddings, zero-fill if missing
         self.vad_scene = align_embeddings_by_post(
@@ -133,6 +141,13 @@ class AffectiveEmbeddingGenerator:
             post_order=self.post_order,
             zero_fill_dim=scene_dim
         )
+        # Ensure same device
+        n = len(self.vad_text)
+        self.vad_face = self.vad_face[:n]
+        self.vad_scene = self.vad_scene[:n]
+        
+        print(f"Aligned shapes — Text: {self.vad_text.shape}, Face: {self.vad_face.shape}, Scene: {self.vad_scene.shape}")
+
         # Ensure same device
         self.vad_text = self.vad_text.to(device)
         self.vad_face = self.vad_face.to(device)

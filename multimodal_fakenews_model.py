@@ -34,6 +34,7 @@ from sklearn.cross_decomposition import CCA
 from sklearn.cluster import HDBSCAN, SpectralClustering
 from sklearn.metrics import silhouette_score
 import umap
+from transformers import BertTokenizerFast
 
 #multimodal_fakenews_model.py
 # -------------------------
@@ -90,7 +91,7 @@ df['num_posts_user'] = df.groupby('username')['post_id'].transform('count')
 # -------------------------
 # Load BERT
 # -------------------------
-tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
 bert_model = BertModel.from_pretrained("bert-base-uncased").to(device)
 bert_model.eval()
 
@@ -139,14 +140,73 @@ def build_dep_adj(doc):
             adj[tok.i, tok.head.i] = adj[tok.head.i, tok.i] = 4
     return adj
 
-def align_adj_to_bert(adj, bert_seq_len):
-    padded = torch.zeros(bert_seq_len, bert_seq_len)
-    seq_len = adj.shape[0]
-    if seq_len >= bert_seq_len:
-        padded = adj[:bert_seq_len, :bert_seq_len]
-    else:
-        padded[:seq_len, :seq_len] = adj
-    return padded
+def build_dep_adj_bert_aligned(text, tokenizer, max_length=64):
+    """
+    Builds a dependency adjacency matrix aligned to BERT subword tokens.
+    Uses word_ids() to map SpaCy token indices → BERT subword indices.
+    """
+    doc = nlp(text)
+    spacy_tokens = [tok.text for tok in doc]
+    
+    # Tokenize with return_offsets_mapping for alignment
+    encoded = tokenizer(
+        text,
+        max_length=max_length,
+        truncation=True,
+        padding='max_length',
+        return_tensors='pt',
+        return_offsets_mapping=True
+    )
+    
+    # word_ids() maps each BERT subword position → word index (None for [CLS]/[SEP])
+    word_ids = encoded.word_ids(batch_index=0)  # list of len max_length
+    
+    bert_seq_len = max_length
+    adj = torch.zeros(bert_seq_len, bert_seq_len)
+    
+    # Build SpaCy-level adjacency first (same as before)
+    spacy_adj = {}
+    for tok in doc:
+        i, j = tok.i, tok.head.i
+        if i == j:
+            continue
+        edge_type = 1  # default
+        if tok.dep_ == 'neg':
+            edge_type = 2
+        elif tok.dep_ in ['amod', 'advmod']:
+            edge_type = 3
+        elif tok.dep_ in ['tmod', 'npadvmod']:
+            edge_type = 4
+        spacy_adj[(i, j)] = edge_type
+        spacy_adj[(j, i)] = edge_type  # undirected
+    
+    # Map SpaCy word indices → all corresponding BERT subword indices
+    word_to_bert = {}
+    for bert_idx, word_idx in enumerate(word_ids):
+        if word_idx is None:
+            continue
+        if word_idx not in word_to_bert:
+            word_to_bert[word_idx] = []
+        word_to_bert[word_idx].append(bert_idx)
+    
+    # Propagate edges: for each SpaCy edge (i→j), connect ALL subwords of i to ALL subwords of j
+    for (spacy_i, spacy_j), edge_type in spacy_adj.items():
+        bert_i_positions = word_to_bert.get(spacy_i, [])
+        bert_j_positions = word_to_bert.get(spacy_j, [])
+        for bi in bert_i_positions:
+            for bj in bert_j_positions:
+                if bi < bert_seq_len and bj < bert_seq_len:
+                    adj[bi, bj] = edge_type
+                    adj[bj, bi] = edge_type
+        
+        # Also connect subwords of the same word to each other (intra-word edges)
+        for positions in [bert_i_positions, bert_j_positions]:
+            for bi in positions:
+                for bj in positions:
+                    if bi != bj and bi < bert_seq_len and bj < bert_seq_len:
+                        adj[bi, bj] = 1  # same-word edge
+    
+    return adj, encoded
 
 # -------------------------
 # Text embeddings + semantic vectors
@@ -157,25 +217,31 @@ all_global_embeddings, all_local_embeddings, semantic_vectors = [], [], []
 
 for i in tqdm(range(0, len(texts), batch_size), desc="Extracting embeddings"):
     batch_texts = texts[i:i+batch_size]
-    encoded = tokenizer(batch_texts, padding=True, truncation=True, max_length=64, return_tensors="pt")
-    encoded = {k:v.to(device) for k,v in encoded.items()}
-    seq_len = encoded['input_ids'].shape[1]
-
+    
+    # Build aligned adjacency matrices per sample
+    batch_adjs = []
+    batch_input_ids = []
+    batch_attention_masks = []
+    
+    for text in batch_texts:
+        adj, encoded = build_dep_adj_bert_aligned(text, tokenizer, max_length=64)
+        batch_adjs.append(adj)
+        batch_input_ids.append(encoded['input_ids'].squeeze(0))
+        batch_attention_masks.append(encoded['attention_mask'].squeeze(0))
+    
+    # Stack into batch tensors
+    input_ids = torch.stack(batch_input_ids).to(device)
+    attention_mask = torch.stack(batch_attention_masks).to(device)
+    batch_adj_tensor = torch.stack(batch_adjs).to(device)
+    
     with torch.no_grad():
-        outputs = bert_model(**encoded)
+        outputs = bert_model(input_ids=input_ids, attention_mask=attention_mask)
         last_hidden = outputs.last_hidden_state
-        cls_emb = last_hidden[:,0,:]
+        cls_emb = last_hidden[:, 0, :]
         all_global_embeddings.extend(cls_emb.cpu().tolist())
         all_local_embeddings.extend([emb.cpu().tolist() for emb in last_hidden])
-
-    batch_adj = torch.zeros(len(batch_texts), seq_len, seq_len, device=device)
-    for b, text in enumerate(batch_texts):
-        doc = nlp(text)
-        adj = build_dep_adj(doc)
-        batch_adj[b] = align_adj_to_bert(adj, seq_len)
-
-    with torch.no_grad():
-        dep_vec = dep_att_layer(last_hidden, batch_adj)
+        
+        dep_vec = dep_att_layer(last_hidden, batch_adj_tensor)
         semantic_vectors.extend(dep_vec.cpu().tolist())
 
 df['global_embedding'] = all_global_embeddings
@@ -463,19 +529,12 @@ class EmbeddingPreprocessor:
         return text_reduced, image_reduced, meta_reduced
     
     def align_embeddings_cca(self, text_reduced, image_reduced):
-        """Step 4: Align embeddings using CCA"""
-        print("\n🔗 Step 4: Align embeddings (CCA)")
+        """Step 4: CCA removed — correlation was 0.063, adding noise not signal.
+        Pass PCA-reduced embeddings directly as separate streams."""
+        print("\n🔗 Step 4: CCA skipped (low correlation — passing through directly)")
+        print(f"  Text: {text_reduced.shape}, Image: {image_reduced.shape}")
+        return text_reduced, image_reduced
         
-        self.cca_text_image = CCA(n_components=self.cca_components)
-        text_aligned, image_aligned = self.cca_text_image.fit_transform(text_reduced, image_reduced)
-        
-        corr = np.corrcoef(text_aligned.T, image_aligned.T)[:self.cca_components, self.cca_components:]
-        avg_corr = np.diag(corr).mean()
-        print(f"  Text-Image alignment: {text_reduced.shape[1]} → {text_aligned.shape[1]} dims")
-        print(f"  Average canonical correlation: {avg_corr:.3f}")
-        
-        return text_aligned, image_aligned
-    
     def fuse_embeddings(self, text_aligned, image_aligned, meta_reduced):
         """Step 5: Fuse embeddings"""
         print(f"\n🔀 Step 5: Fuse embeddings (method: {self.fusion_method})")
@@ -650,9 +709,18 @@ print("APPLYING PREPROCESSING PIPELINE TO EMBEDDINGS")
 print("="*70)
 
 # Prepare embeddings
-text_embeddings_array = np.array(semantic_vectors)
+# Align all embeddings to the same rows as image_embeddings (11,844)
+# image_embeddings was built from df rows that had valid images
+n_img = image_embeddings.shape[0]
+
+text_embeddings_array = np.array(semantic_vectors)[:n_img]
 image_embeddings_array = image_embeddings.cpu().numpy()
-meta_embeddings_array = metadata_embedding_vector.cpu().numpy()
+meta_embeddings_array = metadata_embedding_vector.cpu().numpy()[:n_img]
+
+# Also align df for downstream use (contradiction scores, labels etc.)
+df = df.iloc[:n_img].reset_index(drop=True)
+
+print(f"Aligned to {n_img} rows (image cache size)")
 
 print(f"\nInput shapes:")
 print(f"  Text embeddings: {text_embeddings_array.shape}")
@@ -663,11 +731,10 @@ print(f"  Metadata embeddings: {meta_embeddings_array.shape}")
 embedding_preprocessor = EmbeddingPreprocessor(
     pca_components_text=64,
     pca_components_image=64,
-    pca_components_meta=64,
-    cca_components=64,
-    fusion_method='weighted',
-    post_fusion_method='pca',
-    post_fusion_dim=32,
+    pca_components_meta=32,
+    cca_components=64,        # unused now but harmless
+    fusion_method='concatenate',
+    post_fusion_method=None,  # no post-fusion collapse
     cluster_method='hdbscan'
 )
 
@@ -759,14 +826,40 @@ cross_verifier_model = CrossVerifier().to(device)
 # -------------------------
 # Prepare CrossVerifier training WITH PREPROCESSED EMBEDDINGS
 # -------------------------
-pos_pairs = torch.arange(len(preprocessed_image_embeddings))
-pos_labels = torch.ones(len(pos_pairs))
-neg_pairs = torch.randperm(len(preprocessed_image_embeddings))
-neg_labels = torch.zeros(len(neg_pairs))
+# Label-aware negative sampling
+fake_indices = torch.tensor([i for i, label in enumerate(df['label']) 
+                              if label in [1, 'fake', 'Fake']])
+real_indices = torch.tensor([i for i, label in enumerate(df['label']) 
+                              if label in [0, 'real', 'Real']])
 
-train_text_emb = torch.cat([preprocessed_text_embeddings, preprocessed_text_embeddings], dim=0)
-train_image_emb = torch.cat([preprocessed_image_embeddings, preprocessed_image_embeddings[neg_pairs]], dim=0)
-train_labels = torch.cat([pos_labels, neg_labels], dim=0)
+# Positive pairs: text + its own image
+pos_text   = preprocessed_text_embeddings
+pos_image  = preprocessed_image_embeddings
+pos_labels = torch.ones(len(pos_text))
+
+# Hard negatives: fake text + real image (deception-indicative mismatch)
+n_hard = min(len(fake_indices), len(real_indices))
+hard_fake_idx   = fake_indices[torch.randperm(len(fake_indices))[:n_hard]]
+hard_real_idx   = real_indices[torch.randperm(len(real_indices))[:n_hard]]
+hard_neg_text   = preprocessed_text_embeddings[hard_fake_idx]
+hard_neg_image  = preprocessed_image_embeddings[hard_real_idx]
+hard_neg_labels = torch.zeros(n_hard)
+
+# Easy negatives: random shuffled pairs
+easy_perm       = torch.randperm(len(preprocessed_image_embeddings))
+easy_neg_text   = preprocessed_text_embeddings
+easy_neg_image  = preprocessed_image_embeddings[easy_perm]
+easy_neg_labels = torch.zeros(len(easy_neg_text))
+
+# Combine
+train_text_emb  = torch.cat([pos_text,  hard_neg_text,  easy_neg_text],  dim=0)
+train_image_emb = torch.cat([pos_image, hard_neg_image, easy_neg_image], dim=0)
+train_labels    = torch.cat([pos_labels, hard_neg_labels, easy_neg_labels], dim=0)
+
+print(f"Training pairs: {len(train_labels)} total")
+print(f"  Positive (matched):        {len(pos_labels)}")
+print(f"  Hard negative (fake+real): {n_hard}")
+print(f"  Easy negative (random):    {len(easy_neg_labels)}")
 
 train_dataset = torch.utils.data.TensorDataset(train_text_emb, train_image_emb, train_labels)
 train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
@@ -866,9 +959,8 @@ class Step1_InputProjection(nn.Module):
 # ==============================================================================
 
 class Step2_CrossModalAttention(nn.Module):
-    def __init__(self, d_common, num_heads=8):
+    def __init__(self, d_common):
         super().__init__()
-        self.num_heads = num_heads
         self.scale = d_common ** 0.5
         
         self.query_text = nn.Linear(d_common, d_common)
@@ -885,28 +977,36 @@ class Step2_CrossModalAttention(nn.Module):
         self.image_residual_weight = nn.Parameter(torch.tensor(0.7))
 
     def forward(self, z_text, z_image, z_meta):
-        Q_t = self.query_text(z_text)
-        K_i = self.key_image(z_image)
-        V_i = self.value_image(z_image)
-        attn_scores_ti = torch.matmul(Q_t, K_i.T) / self.scale
-        attn_weights_ti = F.softmax(attn_scores_ti, dim=-1)
-        text_attended = torch.matmul(attn_weights_ti, V_i)
+        Q_t = self.query_text(z_text)    # [B, d]
+        K_i = self.key_image(z_image)    # [B, d]
+        V_i = self.value_image(z_image)  # [B, d]
         
-        z_text_attn = self.text_residual_weight * z_text + (1 - self.text_residual_weight) * text_attended
+        # Per-sample dot product — scalar attention weight per post
+        # (Q_t * K_i) is element-wise, sum gives one scalar per sample
+        attn_score_ti = (Q_t * K_i).sum(dim=-1, keepdim=True) / self.scale  # [B, 1]
+        attn_weight_ti = torch.sigmoid(attn_score_ti)  # [B, 1]
+        text_attended = attn_weight_ti * V_i            # [B, d]
+        
+        z_text_attn = (self.text_residual_weight * z_text + 
+                       (1 - self.text_residual_weight) * text_attended)
 
-        Q_i = self.query_image(z_image)
-        K_t = self.key_text(z_text)
-        V_t = self.value_text(z_text)
-        attn_scores_it = torch.matmul(Q_i, K_t.T) / self.scale
-        attn_weights_it = F.softmax(attn_scores_it, dim=-1)
-        image_attended = torch.matmul(attn_weights_it, V_t)
+        Q_i = self.query_image(z_image)  # [B, d]
+        K_t = self.key_text(z_text)      # [B, d]
+        V_t = self.value_text(z_text)    # [B, d]
         
-        z_image_attn = self.image_residual_weight * z_image + (1 - self.image_residual_weight) * image_attended
+        attn_score_it = (Q_i * K_t).sum(dim=-1, keepdim=True) / self.scale  # [B, 1]
+        attn_weight_it = torch.sigmoid(attn_score_it)  # [B, 1]
+        image_attended = attn_weight_it * V_t           # [B, d]
+        
+        z_image_attn = (self.image_residual_weight * z_image + 
+                        (1 - self.image_residual_weight) * image_attended)
 
         z_meta_attn = self.proj_meta(z_meta)
 
-        return z_text_attn, z_image_attn, z_meta_attn, (attn_weights_ti + attn_weights_it) / 2
+        # Average attention weights for interpretability
+        avg_attn = (attn_weight_ti + attn_weight_it) / 2  # [B, 1]
 
+        return z_text_attn, z_image_attn, z_meta_attn, avg_attn
 
 # ==============================================================================
 # STEP 3: MISMATCH VECTOR
