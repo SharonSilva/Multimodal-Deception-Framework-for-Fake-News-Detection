@@ -532,7 +532,7 @@ import os, sys, warnings, base64, io, traceback, pickle
 import numpy as np
 import torch
 import torch.nn.functional as F
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from PIL import Image
 
@@ -2035,6 +2035,17 @@ def health():
 
 
 
+
+@app.route("/")
+def serve_index():
+    return send_from_directory("/app/static", "index.html")
+
+@app.route("/<path:path>")
+def serve_static(path):
+    try:
+        return send_from_directory("/app/static", path)
+    except:
+        return send_from_directory("/app/static", "index.html")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5001))

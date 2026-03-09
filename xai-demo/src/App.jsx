@@ -11,7 +11,7 @@ async function runPipelineAnalysis(text, imageBase64) {
 }
 
  const [res, imgDesc] = await Promise.all([
-   fetch("http://localhost:5001/predict", {
+   fetch("/predict", {
      method: "POST",
      headers: { "Content-Type": "application/json" },
      body: JSON.stringify(body),
@@ -111,7 +111,7 @@ async function runBatchAnalysis(posts, onProgress) {
  const allResults = [];
  for (let i = 0; i < posts.length; i += CHUNK) {
    const chunk = posts.slice(i, i + CHUNK);
-   const res = await fetch("http://localhost:5001/batch", {
+   const res = await fetch("/batch", {
      method: "POST",
      headers: { "Content-Type": "application/json" },
      body: JSON.stringify({ posts: chunk }),
@@ -135,7 +135,7 @@ async function runBatchAnalysis(posts, onProgress) {
 
 async function describeTextWithAI(text, vt) {
  try {
-   const res = await fetch("http://localhost:5001/ai_describe", {
+   const res = await fetch("/ai_describe", {
      method: "POST",
      headers: { "Content-Type": "application/json" },
      body: JSON.stringify({
@@ -151,7 +151,7 @@ async function describeTextWithAI(text, vt) {
 
 async function explainMismatchWithAI(text, imgDesc, vt, vi, dA, dV, isFake) {
  try {
-   const res = await fetch("http://localhost:5001/ai_describe", {
+   const res = await fetch("/ai_describe", {
      method: "POST",
      headers: { "Content-Type": "application/json" },
      body: JSON.stringify({
@@ -169,7 +169,7 @@ async function describeImageWithGemini(imageBase64) {
  if (!imageBase64) return null;
  try {
    const base64Data = imageBase64.includes(",") ? imageBase64.split(",")[1] : imageBase64;
-   const res = await fetch("http://localhost:5001/describe", {
+   const res = await fetch("/describe", {
      method: "POST",
      headers: { "Content-Type": "application/json" },
      body: JSON.stringify({ image_base64: base64Data }),
