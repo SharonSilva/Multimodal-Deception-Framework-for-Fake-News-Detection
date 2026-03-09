@@ -128,4 +128,4 @@ vad.py
 anomaly_detection_results/*.png
 anomaly_detection_results/*.pt
 checkpoints/*.pth
-platt_calibrator.pkl
+platt_calibrator.pklanomaly_detection_results/anomaly_models.pt
