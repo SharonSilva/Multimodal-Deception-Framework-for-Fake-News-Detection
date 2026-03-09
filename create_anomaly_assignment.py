@@ -19,7 +19,6 @@ from sklearn.ensemble import IsolationForest
 from sklearn.neighbors import LocalOutlierFactor
 from sklearn.svm import OneClassSVM
 from sklearn.covariance import EllipticEnvelope
-import umap
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -167,7 +166,14 @@ print("   [4.3] One-Class SVM...")
 ocsvm = OneClassSVM(kernel='rbf', gamma='auto', nu=0.1)
 ocsvm.fit(X_reduced[real_mask])
 ocsvm_labels = ocsvm.predict(X_reduced)
-ocsvm_scores = -ocsvm.score_samples(X_reduced)
+# OCSVM score_samples returns all-negative values where
+# more negative = more anomalous (further outside boundary)
+# So we negate to flip: high positive = more anomalous
+# But since all values are negative, raw = -score_samples is also negative.
+# Instead: anomaly = -score_samples, then shift to positive range
+ocsvm_raw = -ocsvm.score_samples(X_reduced)  # all negative
+ocsvm_shift = float(ocsvm_raw.min())         # save this offset
+ocsvm_scores = ocsvm_raw - ocsvm_shift       # shift to [0, range]
 anomaly_scores['ocsvm'] = ocsvm_scores
 print(f"   ✅ Detected {(ocsvm_labels == -1).sum()} anomalies ({(ocsvm_labels == -1).sum()/len(X_reduced)*100:.1f}%)")
 
@@ -234,16 +240,6 @@ for level in ['normal', 'low', 'medium', 'high', 'critical']:
     pct = count / len(anomaly_levels) * 100
     print(f"      {level:8s}: {count:5d} posts ({pct:5.1f}%)")
 
-# ============================================================================
-# STEP 6: UMAP VISUALIZATION
-# ============================================================================
-
-print("\n[STEP 6] Creating UMAP visualization...")
-
-reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, random_state=42)
-X_2d = reducer.fit_transform(X_reduced)
-
-print(f"✅ UMAP embedding complete")
 
 # ============================================================================
 # STEP 7: USER-LEVEL BEHAVIORAL ANALYSIS
@@ -371,21 +367,22 @@ if suspicious_users:
 
 # Save per-method score distributions for correct inference normalization
 method_score_distributions = {}
-for name, model in [('isolation_forest', iso_forest),
-                     ('lof', lof),
-                     ('ocsvm', ocsvm),
-                     ('elliptic', elliptic)]:
-    raw = -model.score_samples(X_reduced)
+for name, (scores_raw, scores_norm) in [
+    ('isolation_forest', (anomaly_scores['isolation_forest'], anomaly_scores_normalized['isolation_forest'])),
+    ('lof',              (anomaly_scores['lof'],              anomaly_scores_normalized['lof'])),
+    ('ocsvm',            (anomaly_scores['ocsvm'],            anomaly_scores_normalized['ocsvm'])),
+    ('elliptic',         (anomaly_scores['elliptic'],         anomaly_scores_normalized['elliptic'])),
+]:
     method_score_distributions[name] = {
-        'min':  float(raw.min()),
-        'max':  float(raw.max()),
-        'mean': float(raw.mean()),
-        'std':  float(raw.std()),
-        'p25':  float(np.percentile(raw, 25)),
-        'p75':  float(np.percentile(raw, 75)),
-        'p95':  float(np.percentile(raw, 95)),
+        'min':  float(scores_raw.min()),
+        'max':  float(scores_raw.max()),
+        'mean': float(scores_raw.mean()),
+        'std':  float(scores_raw.std()),
+        'p25':  float(np.percentile(scores_raw, 25)),
+        'p75':  float(np.percentile(scores_raw, 75)),
+        'p95':  float(np.percentile(scores_raw, 95)),
     }
-    print(f"  {name}: raw range=[{raw.min():.4f}, {raw.max():.4f}]")
+    print(f"  {name}: raw range=[{scores_raw.min():.4f}, {scores_raw.max():.4f}]")
 
 ensemble_score_distribution = {
     'min':  float(ensemble_score.min()),
@@ -403,7 +400,7 @@ ensemble_score_distribution = {
 torch.save({
     'scaler': scaler,
     'pca': pca,
-    'umap_reducer': reducer,
+    
     'models': {
         'isolation_forest': iso_forest,
         'lof': lof,
@@ -415,7 +412,7 @@ torch.save({
     'method_score_distributions': method_score_distributions,
     'ensemble_score_distribution': ensemble_score_distribution,
     'X_reduced': X_reduced,
-    'X_2d': X_2d
+    'ocsvm_shift': ocsvm_shift
 }, output_dir / "anomaly_models.pt")
 
 print(f"\n✅ Saved with score distributions")
@@ -432,67 +429,41 @@ print(f"✅ Saved results to {output_dir}/")
 
 print("\n[STEP 9] Creating visualizations...")
 
-fig = plt.figure(figsize=(20, 14))
-gs = fig.add_gridspec(3, 4, hspace=0.35, wspace=0.35)
+fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+fig.suptitle('Anomaly Detection Analysis', fontsize=16, fontweight='bold')
 
-# 1. UMAP with anomaly scores (continuous)
-ax1 = fig.add_subplot(gs[0:2, 0:2])
-scatter = ax1.scatter(X_2d[:, 0], X_2d[:, 1], c=ensemble_score, 
-                     cmap='YlOrRd', alpha=0.6, s=15, edgecolors='none')
-ax1.set_title('UMAP: Anomaly Score Distribution', fontsize=14, fontweight='bold')
-ax1.set_xlabel('UMAP 1')
-ax1.set_ylabel('UMAP 2')
-cbar = plt.colorbar(scatter, ax=ax1)
-cbar.set_label('Anomaly Score', rotation=270, labelpad=20)
-
-# 2. UMAP with anomaly levels (categorical)
-ax2 = fig.add_subplot(gs[0:2, 2:4])
-level_colors = {'normal': 0, 'low': 1, 'medium': 2, 'high': 3, 'critical': 4}
-colors = [level_colors[level] for level in anomaly_levels]
-scatter2 = ax2.scatter(X_2d[:, 0], X_2d[:, 1], c=colors, 
-                      cmap='RdYlGn_r', alpha=0.6, s=15, edgecolors='none')
-ax2.set_title('UMAP: Anomaly Severity Levels', fontsize=14, fontweight='bold')
-ax2.set_xlabel('UMAP 1')
-ax2.set_ylabel('UMAP 2')
-cbar2 = plt.colorbar(scatter2, ax=ax2, ticks=[0, 1, 2, 3, 4])
-cbar2.ax.set_yticklabels(['Normal', 'Low', 'Medium', 'High', 'Critical'])
-
-# 3. Anomaly score distribution
-ax3 = fig.add_subplot(gs[2, 0])
-ax3.hist(ensemble_score, bins=50, color='coral', edgecolor='black', alpha=0.7)
+# 1. Anomaly score distribution
+axes[0, 0].hist(ensemble_score, bins=50, color='coral', edgecolor='black', alpha=0.7)
 for i, pct in enumerate([75, 90, 95, 99]):
-    ax3.axvline(anomaly_percentiles[i], color='red', linestyle='--', 
-               linewidth=1.5, alpha=0.7, label=f'{pct}th percentile')
-ax3.set_title('Anomaly Score Distribution', fontsize=12, fontweight='bold')
-ax3.set_xlabel('Ensemble Anomaly Score')
-ax3.set_ylabel('Frequency')
-ax3.legend(fontsize=8)
+    axes[0, 0].axvline(anomaly_percentiles[i], color='red', linestyle='--',
+                       linewidth=1.5, alpha=0.7, label=f'{pct}th percentile')
+axes[0, 0].set_title('Anomaly Score Distribution', fontweight='bold')
+axes[0, 0].set_xlabel('Ensemble Anomaly Score')
+axes[0, 0].set_ylabel('Frequency')
+axes[0, 0].legend(fontsize=8)
 
-# 4. Method comparison
-ax4 = fig.add_subplot(gs[2, 1])
+# 2. Method comparison
 method_counts = {
     'IsoForest': (iso_labels == -1).sum(),
     'LOF': (lof_labels == -1).sum(),
     'OCSVM': (ocsvm_labels == -1).sum(),
     'Elliptic': (elliptic_labels == -1).sum()
 }
-ax4.bar(method_counts.keys(), method_counts.values(), 
-        color=['#3498db', '#e74c3c', '#2ecc71', '#f39c12'], edgecolor='black')
-ax4.set_title('Anomalies Detected by Method', fontsize=12, fontweight='bold')
-ax4.set_ylabel('Number of Anomalies')
-ax4.tick_params(axis='x', rotation=45)
+axes[0, 1].bar(method_counts.keys(), method_counts.values(),
+               color=['#3498db', '#e74c3c', '#2ecc71', '#f39c12'], edgecolor='black')
+axes[0, 1].set_title('Anomalies Detected by Method', fontweight='bold')
+axes[0, 1].set_ylabel('Number of Anomalies')
+axes[0, 1].tick_params(axis='x', rotation=45)
 
-# 5. Severity distribution
-ax5 = fig.add_subplot(gs[2, 2])
-level_counts = {level: (anomaly_levels == level).sum() 
+# 3. Severity distribution
+level_counts = {level: (anomaly_levels == level).sum()
                 for level in ['normal', 'low', 'medium', 'high', 'critical']}
 colors_pie = ['#2ecc71', '#f1c40f', '#e67e22', '#e74c3c', '#8e44ad']
-ax5.pie(level_counts.values(), labels=level_counts.keys(), autopct='%1.1f%%',
-        colors=colors_pie, startangle=90)
-ax5.set_title('Anomaly Severity Distribution', fontsize=12, fontweight='bold')
+axes[1, 0].pie(level_counts.values(), labels=level_counts.keys(), autopct='%1.1f%%',
+               colors=colors_pie, startangle=90)
+axes[1, 0].set_title('Anomaly Severity Distribution', fontweight='bold')
 
-# 6. User risk distribution
-ax6 = fig.add_subplot(gs[2, 3])
+# 4. User risk distribution
 user_risk_counts = {}
 for b in user_behavior.values():
     risk = b['risk_category']
@@ -501,70 +472,11 @@ for b in user_behavior.values():
 risk_order = ['low', 'medium', 'high', 'critical']
 risk_colors = ['#2ecc71', '#f39c12', '#e67e22', '#e74c3c']
 risk_values = [user_risk_counts.get(r, 0) for r in risk_order]
-
-ax6.bar(risk_order, risk_values, color=risk_colors, edgecolor='black')
-ax6.set_title('User Risk Categories', fontsize=12, fontweight='bold')
-ax6.set_ylabel('Number of Users')
-ax6.tick_params(axis='x', rotation=45)
-
-plt.savefig(output_dir / "anomaly_analysis.png", dpi=150, bbox_inches='tight')
-print(f"✅ Saved visualization")
-
-# Create detailed UMAP plots
-fig2, axes = plt.subplots(1, 2, figsize=(18, 7))
-
-# High-resolution continuous score
-scatter1 = axes[0].scatter(X_2d[:, 0], X_2d[:, 1], c=ensemble_score, 
-                          cmap='YlOrRd', alpha=0.6, s=20, edgecolors='black', linewidth=0.1)
-axes[0].set_title('Anomaly Score (Continuous)', fontsize=14, fontweight='bold')
-axes[0].set_xlabel('UMAP 1', fontsize=12)
-axes[0].set_ylabel('UMAP 2', fontsize=12)
-plt.colorbar(scatter1, ax=axes[0], label='Anomaly Score')
-
-# High-resolution categorical
-colors2 = [level_colors[level] for level in anomaly_levels]
-scatter2 = axes[1].scatter(X_2d[:, 0], X_2d[:, 1], c=colors2, 
-                          cmap='RdYlGn_r', alpha=0.6, s=20, edgecolors='black', linewidth=0.1)
-axes[1].set_title('Anomaly Severity (Categorical)', fontsize=14, fontweight='bold')
-axes[1].set_xlabel('UMAP 1', fontsize=12)
-axes[1].set_ylabel('UMAP 2', fontsize=12)
-cbar = plt.colorbar(scatter2, ax=axes[1], ticks=[0, 1, 2, 3, 4])
-cbar.ax.set_yticklabels(['Normal', 'Low', 'Medium', 'High', 'Critical'])
+axes[1, 1].bar(risk_order, risk_values, color=risk_colors, edgecolor='black')
+axes[1, 1].set_title('User Risk Categories', fontweight='bold')
+axes[1, 1].set_ylabel('Number of Users')
+axes[1, 1].tick_params(axis='x', rotation=45)
 
 plt.tight_layout()
-plt.savefig(output_dir / "umap_detailed.png", dpi=200, bbox_inches='tight')
-print(f"✅ Saved detailed UMAP")
-
-print("\n" + "="*80)
-print("✅ ANOMALY DETECTION PIPELINE COMPLETE!")
-print("="*80)
-
-print(f"\n📊 Final Summary:")
-print(f"   Total posts analyzed: {len(results_df)}")
-print(f"   Anomaly detection methods: 4 (IsolationForest, LOF, OCSVM, Elliptic)")
-print(f"   Ensemble approach: Weighted average")
-print(f"\n   Severity Breakdown:")
-for level in ['normal', 'low', 'medium', 'high', 'critical']:
-    count = (anomaly_levels == level).sum()
-    pct = count / len(anomaly_levels) * 100
-    print(f"      {level.capitalize():8s}: {count:5d} posts ({pct:5.1f}%)")
-
-print(f"\n   User Analysis:")
-print(f"      Total users: {len(user_behavior)}")
-print(f"      Suspicious users: {len(suspicious_users)} ({len(suspicious_users)/len(user_behavior)*100:.1f}%)")
-
-if suspicious_users:
-    critical_users = sum(1 for u in user_behavior.values() if u['risk_category'] == 'critical')
-    high_users = sum(1 for u in user_behavior.values() if u['risk_category'] == 'high')
-    print(f"      Critical risk: {critical_users}")
-    print(f"      High risk: {high_users}")
-
-print(f"\n   Output files:")
-print(f"      📄 anomaly_assignments.csv - Post-level anomaly scores")
-print(f"      👤 user_risk_analysis.csv - User-level risk profiles")
-print(f"      ⚠️  suspicious_users.csv - Flagged users only")
-print(f"      🔧 anomaly_models.pt - Trained models & preprocessors")
-print(f"      📊 anomaly_analysis.png - Comprehensive visualization")
-print(f"      📊 umap_detailed.png - High-res UMAP plots")
-
-print(f"\n   Results saved to: {output_dir}/")
+plt.savefig(output_dir / "anomaly_analysis.png", dpi=150, bbox_inches='tight')
+print(f"✅ Saved visualization")
