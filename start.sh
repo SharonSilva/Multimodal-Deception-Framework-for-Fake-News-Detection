@@ -15,14 +15,5 @@ for i in $(seq 1 60); do
     sleep 1
 done
 
-echo "Pulling moondream..."
-ollama pull moondream
-
-echo "Pulling llama3.2:1b..."
-ollama pull llama3.2:1b
-
-echo "Downloading model files from Hugging Face..."
-python /app/download_models.py
-
 echo "Starting Flask app..."
 exec python app.py
