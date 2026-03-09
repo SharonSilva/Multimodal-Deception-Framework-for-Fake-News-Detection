@@ -21,7 +21,7 @@ RUN curl -fsSL https://ollama.com/install.sh | sh
 # Pull models at build time while network is available
 RUN ollama serve & sleep 5 && \
     ollama pull moondream && \
-    ollama pull llama3.2:1b && \
+    ollama pull llama3.2 && \
     kill $(pgrep ollama) 2>/dev/null || true
 
 WORKDIR /app
@@ -55,7 +55,6 @@ RUN pip install --no-cache-dir \
     python-dotenv==1.1.1 \
     "huggingface_hub>=0.19.3,<1.0"
 
-# Build frontend
 RUN apt-get update && apt-get install -y nodejs npm && rm -rf /var/lib/apt/lists/*
 COPY xai-demo/ /app/xai-demo/
 RUN cd /app/xai-demo && npm install && npm run build
