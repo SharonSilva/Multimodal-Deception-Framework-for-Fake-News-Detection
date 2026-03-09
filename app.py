@@ -1114,7 +1114,7 @@ Do not say "possibly" or "might be". Pick the most likely interpretation and sta
             headers={"Content-Type": "application/json"},
             method="POST"
         )
-        with urllib.request.urlopen(req, timeout=20) as resp:
+        with urllib.request.urlopen(req, timeout=120) as resp:
             caption = json_lib.loads(resp.read()).get("response", "").strip()
             if caption:
                 print(f"[vision_llm] llama3.2 synthesis: {caption[:100]}")
@@ -1422,7 +1422,7 @@ Answer with exactly one word: MATCH or MISMATCH"""
             headers={"Content-Type": "application/json"},
             method="POST"
         )
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=120) as resp:
             result   = json_lib.loads(resp.read().decode("utf-8"))
             response = result.get("response", "").strip()
             print(f"[llm_entity] Stage 2 LLM: {response}")
@@ -2018,7 +2018,7 @@ def ai_describe():
             headers={"Content-Type": "application/json"},
             method="POST"
         )
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=120) as resp:
             result = json_lib.loads(resp.read().decode("utf-8"))
             text   = result.get("response", "").strip()
             print(f"[ai_describe] ✅ Ollama: {text[:80]}...")
