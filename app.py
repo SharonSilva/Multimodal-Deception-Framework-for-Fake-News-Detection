@@ -855,31 +855,12 @@ def load_all_models():
         print("[server] training_scores missing - re-run patch_anomaly_scores.py")
         MODELS['training_scores'] = {}
 
-    print("[server] Computing anomaly thresholds...")
-    try:
-        import pandas as pd
-        adf = pd.read_csv(os.path.join(PROJECT_ROOT,
-                          "anomaly_detection_results/anomaly_assignments.csv"))
-        rdf = pd.read_pickle(os.path.join(PROJECT_ROOT,
-                             "Dataset/twitter/df_preprocessed_with_scores.pkl"))
-        adf["post_id"] = adf["post_id"].astype(str)
-        rdf["post_id"] = rdf["post_id"].astype(str)
-        merged = adf.merge(rdf[["post_id","label"]], on="post_id", how="left")
-        real   = merged[merged["label"].str.lower() == "real"]
-        MODELS["thresholds"] = {
-            "iso_forest":       float(real["iso_forest_score"].quantile(0.75)),
-            "lof":              float(real["lof_score"].quantile(0.75)),
-            "ocsvm":            float(real["ocsvm_score"].quantile(0.75)),
-            "elliptic":         float(real["elliptic_score"].quantile(0.75)),
-            "isolation_forest": float(real["iso_forest_score"].quantile(0.75)),
-        }
-        print(f"[server] ✅ Thresholds: { {k: round(v,4) for k,v in MODELS['thresholds'].items()} }")
-    except Exception as e:
-        print(f"[server] ⚠ Threshold fallback ({e})")
-        MODELS["thresholds"] = {
-            "iso_forest":0.43, "lof":0.12, "ocsvm":0.29,
-            "elliptic":0.05, "isolation_forest":0.43
-        }
+    print("[server] Loading anomaly thresholds...")
+    MODELS["thresholds"] = anom_data.get("thresholds", {
+        "iso_forest":0.43, "lof":0.12, "ocsvm":0.29,
+        "elliptic":0.05, "isolation_forest":0.43
+    })
+    print(f"[server] ✅ Thresholds: { {k: round(v,4) for k,v in MODELS['thresholds'].items()} }")
 
     # Load Platt calibrator if already fitted   ← 4 spaces (correct, outside except)
     cal_path = os.path.join(PROJECT_ROOT, "platt_calibrator.pkl")
