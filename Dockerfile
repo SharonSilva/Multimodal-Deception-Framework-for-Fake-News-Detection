@@ -12,23 +12,49 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     libgomp1 \
     llvm \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Ollama first
+# Install Ollama
 RUN curl -fsSL https://ollama.com/install.sh | sh
 
-# Then pull models at build time while network is available
+# Pull models at build time while network is available
 RUN ollama serve & sleep 5 && \
     ollama pull moondream && \
     ollama pull llama3.2:1b && \
-    pkill ollama || true
+    kill $(pgrep ollama) 2>/dev/null || true
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Stage 1 — PyTorch CPU (heaviest, ~800MB, cached independently)
+RUN pip install --no-cache-dir \
+    torch==2.1.0+cpu \
+    torchvision==0.16.0+cpu \
+    torchaudio==2.1.0+cpu \
+    --extra-index-url https://download.pytorch.org/whl/cpu
 
-# Download Python models at build time too
+# Stage 2 — ML/AI packages
+RUN pip install --no-cache-dir \
+    transformers==4.36.2 \
+    open-clip-torch>=2.20.0 \
+    sentence-transformers>=2.2.0 \
+    scikit-learn>=1.4 \
+    scipy>=1.10
+
+# Stage 3 — App packages
+RUN pip install --no-cache-dir \
+    Flask==3.1.0 \
+    flask-cors==6.0.2 \
+    gunicorn>=21.2.0 \
+    numpy==1.26.4 \
+    pandas>=2.0 \
+    opencv-python-headless>=4.10 \
+    Pillow>=10.0 \
+    emoji==2.2.0 \
+    python-dotenv==1.1.1 \
+    huggingface_hub>=0.19.3,<1.0
+
+# Download Python models at build time
 COPY download_models.py .
 RUN python download_models.py
 
