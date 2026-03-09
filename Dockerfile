@@ -38,7 +38,7 @@ RUN pip install --no-cache-dir \
     transformers==4.36.2 \
     open-clip-torch>=2.20.0 \
     sentence-transformers>=2.2.0 \
-    scikit-learn>=1.4 \
+    scikit-learn==1.8.0 \
     scipy>=1.10 \
     umap-learn
 
