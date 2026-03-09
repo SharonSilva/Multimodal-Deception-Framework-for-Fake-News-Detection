@@ -28,9 +28,9 @@ WORKDIR /app
 
 # Stage 1 — PyTorch CPU (heaviest, ~800MB, cached independently)
 RUN pip install --no-cache-dir \
-    torch==2.1.0+cpu \
-    torchvision==0.16.0+cpu \
-    torchaudio==2.1.0+cpu \
+    torch==2.6.0+cpu \
+    torchvision==0.21.0+cpu \
+    torchaudio==2.6.0+cpu \
     --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Stage 2 — ML/AI packages
