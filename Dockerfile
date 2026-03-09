@@ -39,7 +39,8 @@ RUN pip install --no-cache-dir \
     open-clip-torch>=2.20.0 \
     sentence-transformers>=2.2.0 \
     scikit-learn>=1.4 \
-    scipy>=1.10
+    scipy>=1.10 \
+    umap-learn
 
 # Stage 3 — App packages
 RUN pip install --no-cache-dir \
