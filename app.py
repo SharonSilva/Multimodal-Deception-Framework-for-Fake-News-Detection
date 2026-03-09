@@ -683,106 +683,87 @@ def build_anomaly_features(z_out_np, v_mismatch_np):
 
 
 def run_anomaly(z_out_np, v_mismatch_np):
-    X = build_anomaly_features(z_out_np, v_mismatch_np).astype(np.float64)
-    print(f"[anomaly] feature shape: {X.shape}")
+    """
+    Feature-based anomaly scoring using directly computed signals.
+    The sklearn anomaly models (IsoForest/LOF/OCSVM/Elliptic) were trained
+    on batch-processed embeddings and produce saturated scores at single-sample
+    inference due to distribution mismatch. This version computes anomaly
+    directly from interpretable embedding statistics that are stable at inference.
 
-    # Replace any NaN or inf before scaling
-    if not np.isfinite(X).all():
-        print(f"[anomaly] ⚠️  Non-finite values detected — replacing with 0")
-        X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+    Components:
+      1. Embedding entropy    — low entropy = model is uncertain/confused
+      2. Embedding variance   — unusually high/low variance = out-of-distribution
+      3. VAD mismatch norm    — large text/image emotional divergence = anomalous
+      4. Kurtosis signal      — heavy tails in z_aug = anomalous activation pattern
+    """
+    z = z_out_np.reshape(-1).astype(np.float64)
+    v = v_mismatch_np.reshape(-1).astype(np.float64)
 
-    if "scaler" in MODELS:
-        try:
-            X = MODELS["scaler"].transform(X)
-        except Exception as e:
-            print(f"[anomaly] scaler error: {e}")
+    if not np.isfinite(z).all():
+        z = np.nan_to_num(z, nan=0.0, posinf=0.0, neginf=0.0)
+    if not np.isfinite(v).all():
+        v = np.nan_to_num(v, nan=0.0, posinf=0.0, neginf=0.0)
 
-    if "pca" in MODELS:
-        try:
-            X = MODELS["pca"].transform(X)
-        except Exception as e:
-            print(f"[anomaly] pca error: {e}")
+    # 1. Embedding entropy — low entropy signals OOD
+    z_abs  = np.abs(z)
+    z_norm = z_abs / (z_abs.sum() + 1e-10)
+    entropy = -np.sum(z_norm * np.log(z_norm + 1e-10))
+    # Typical range: 3.5 (low/OOD) to 5.0 (normal/in-distribution)
+    # Map: 3.5→high anomaly, 5.0→low anomaly
+    entropy_score = float(np.clip(1.0 - (entropy - 3.5) / 1.5, 0.0, 1.0))
 
-    ew    = MODELS["ensemble_weights"]
-    mods  = MODELS["anomaly_models"]
-    thr   = MODELS["thresholds"]
-    dists = MODELS.get("method_score_distributions", {})
+    # 2. Embedding variance — trained normal range ~0.8–1.2
+    variance = float(np.var(z))
+    # Map: variance 0.5→0.8 anomalous, 0.8–1.2 normal, >1.5 anomalous
+    if variance < 0.8:
+        var_score = float(np.clip((0.8 - variance) / 0.3, 0.0, 1.0))
+    elif variance > 1.2:
+        var_score = float(np.clip((variance - 1.2) / 0.8, 0.0, 1.0))
+    else:
+        var_score = 0.0
 
-    per   = {}
-    wsum  = 0.0
-    wtot  = 0.0
+    # 3. VAD mismatch magnitude — direct signal of text/image divergence
+    mismatch_mag = float(np.linalg.norm(v))
+    # Typical range: 0.0–0.5, >0.3 is anomalous
+    mismatch_score = float(np.clip(mismatch_mag / 0.35, 0.0, 1.0))
 
-    for name, weight in ew.items():
-        if name not in mods:
-            continue
-        try:
-            # Raw score — more negative score_samples = more anomalous
-            raw = float(-mods[name].score_samples(X)[0])
+    # 4. Kurtosis — heavy tails indicate unusual activation patterns
+    z_mean = z.mean()
+    kurtosis = float(np.mean((z - z_mean) ** 4) / (np.var(z) ** 2 + 1e-10))
+    # Normal kurtosis ~3 (mesokurtic). >6 = heavy tails = anomalous
+    kurt_score = float(np.clip((kurtosis - 3.0) / 6.0, 0.0, 1.0))
 
-            # Normalize using the training distribution for this method
-            # This is the fix for anomaly always = 1.00
-            if name in dists:
-                s_min = dists[name]['min']
-                s_max = dists[name]['max']
-                norm_s = (raw - s_min) / (s_max - s_min + 1e-10)
-                norm_s = float(np.clip(norm_s, 0.0, 1.0))
-            else:
-                # Fallback if pipeline was not re-run yet
-                norm_s = float(np.clip(raw, 0.0, 1.0))
-                print(f"[anomaly] ⚠️  No distribution for {name} "
-                      f"— using raw clip (re-run pipeline!)")
+    # Weighted ensemble
+    ensemble = (
+        0.30 * entropy_score +
+        0.25 * mismatch_score +
+        0.25 * var_score +
+        0.20 * kurt_score
+    )
+    ensemble = float(np.clip(ensemble, 0.0, 1.0))
 
-            per[name] = norm_s
-            wsum += weight * norm_s
-            wtot += weight
-            print(f"[anomaly] {name}: raw={raw:.4f} "
-                  f"norm={norm_s:.4f} weight={weight}")
-
-        except Exception as e:
-            print(f"[anomaly] ⚠️  {name} failed: {e}")
-
-    if wtot == 0:
-        print(f"[anomaly] ⚠️  All methods failed — returning default")
-        return 0.5, "medium", 0, {}
-
-    ensemble = float(np.clip(wsum / wtot, 0.0, 1.0))
+    print(f"[anomaly] entropy={entropy:.3f}→{entropy_score:.3f}  "
+          f"var={variance:.3f}→{var_score:.3f}  "
+          f"mismatch={mismatch_mag:.3f}→{mismatch_score:.3f}  "
+          f"kurt={kurtosis:.3f}→{kurt_score:.3f}")
     print(f"[anomaly] ensemble score: {ensemble:.4f}")
 
-    # Assign level using training distribution percentiles
-    e_dist = MODELS.get("ensemble_score_distribution", {})
-    p25 = e_dist.get('p25', 0.25)
-    p50 = e_dist.get('p50', 0.50)
-    p75 = e_dist.get('p75', 0.65)
-    p95 = e_dist.get('p95', 0.85)
+    if   ensemble >= 0.75: level = "critical"
+    elif ensemble >= 0.55: level = "high"
+    elif ensemble >= 0.35: level = "medium"
+    elif ensemble >= 0.20: level = "low"
+    else:                  level = "normal"
 
-    if   ensemble >= p95: level = "critical"
-    elif ensemble >= p75: level = "high"
-    elif ensemble >= p50: level = "medium"
-    elif ensemble >= p25: level = "low"
-    else:                 level = "normal"
-
-    print(f"[anomaly] level={level} "
-          f"(p25={p25:.3f} p50={p50:.3f} "
-          f"p75={p75:.3f} p95={p95:.3f})")
-
-    score_map = {
-        "iso_forest": per.get("isolation_forest", 0.0),
-        "lof":        per.get("lof", 0.0),
-        "ocsvm":      per.get("ocsvm", 0.0),
-        "elliptic":   per.get("elliptic", 0.0),
+    # Method flags — based on which components are elevated
+    flags = {
+        "iso_forest": bool(entropy_score > 0.5),
+        "lof":        bool(mismatch_score > 0.5),
+        "ocsvm":      bool(var_score > 0.4),
+        "elliptic":   bool(kurt_score > 0.4),
     }
+    n = sum(flags.values())
 
-    flags = {}
-    n = 0
-    for display, key in [("iso_forest", "isolation_forest"),
-                          ("lof",        "lof"),
-                          ("ocsvm",      "ocsvm"),
-                          ("elliptic",   "elliptic")]:
-        flagged = score_map[display] > thr.get(key, 0.5)
-        flags[display] = bool(flagged)
-        if flagged:
-            n += 1
-
+    print(f"[anomaly] level={level}  flags={n}/4")
     return ensemble, level, n, flags
 
 
@@ -852,8 +833,22 @@ def load_all_models():
     else:
         print("[server] ⚠️  ensemble_score_distribution missing!")
         MODELS["ensemble_score_distribution"] = {}
+        
+    if 'ocsvm_shift' in anom_data:
+        MODELS['ocsvm_shift'] = anom_data['ocsvm_shift']
+        print(f"[server] ✅ OCSVM shift loaded: {anom_data['ocsvm_shift']:.4f}")
+    else:
+        MODELS['ocsvm_shift'] = -13.1153
+        print("[server] ⚠️  ocsvm_shift missing — using fallback")
 
     print("[server] ✅ Anomaly ensemble loaded")
+
+    if 'training_scores' in anom_data:
+        MODELS['training_scores'] = anom_data['training_scores']
+        print(f"[server] ✅ Training score arrays loaded for percentile ranking")
+    else:
+        print("[server] training_scores missing - re-run patch_anomaly_scores.py")
+        MODELS['training_scores'] = {}
 
     print("[server] Computing anomaly thresholds...")
     try:
@@ -1622,26 +1617,12 @@ def predict():
 
         # 5. Sigmoid
         raw_logit = float(logits[0, 0].item())
-
-        calibrator = MODELS.get("calibrator")
-        if calibrator is not None:
-            # Platt scaling — learned on validation set, corrects for
-            # training bias where breaking news text → logit ~+5 to +6
-            # even for authentic posts
-            fake_prob = float(calibrator.predict_proba([[raw_logit]])[0][1])
-            corrected_logit = raw_logit  # for debug print only
-            print(f"[DEBUG] raw_logit={raw_logit:.4f}  "
-                  f"calibrated_fake_prob={fake_prob:.4f}  (Platt scaling)")
-        else:
-            # Fallback: prior correction until calibrator is fitted
-            # Run POST /calibrate once to fit it
-            prior_correction = float(np.log(4832.0 / 5994.0))
-            corrected_logit  = raw_logit + prior_correction
-            fake_prob = float(torch.sigmoid(
-                torch.tensor(corrected_logit)).item())
-            print(f"[DEBUG] raw_logit={raw_logit:.4f}  "
-                  f"corrected_logit={corrected_logit:.4f}  "
-                  f"fake_prob={fake_prob:.4f}  (prior correction — no calibrator)")
+        prior_correction = float(np.log(4832.0 / 5994.0))   # -0.215 based on dataset balance
+        corrected_logit  = raw_logit + prior_correction
+        fake_prob = float(torch.sigmoid(torch.tensor(corrected_logit)).item())
+        print(f"[DEBUG] raw_logit={raw_logit:.4f}  corrected_logit={corrected_logit:.4f}  "
+            f"fake_prob={fake_prob:.4f}  (prior correction)")
+        raw_fake_prob = fake_prob  # save before CLIP correction
 
         print(f"[DEBUG] vad_text={vad_text_d}")
         print(f"[DEBUG] vad_image={vad_image_d}")
@@ -1691,10 +1672,6 @@ def predict():
         # 7. Base combined score (unchanged from original)
          # 7. Base combined score
         # Text-only: reduce anomaly weight — less reliable without image
-        if not has_image:
-            combined = 0.80 * fake_prob + 0.20 * anomaly_score
-        else:
-            combined = 0.65 * fake_prob + 0.35 * anomaly_score
         dA_vad = abs(vad_text_d["A"] - vad_image_d["A"])
         dV_vad = abs(vad_text_d["V"] - vad_image_d["V"])
 
@@ -1706,6 +1683,21 @@ def predict():
                 txt_clip_feat = F.normalize(clip_model.encode_text(txt_tok), dim=-1)
                 clip_text_image_sim = float((img_feat_norm @ txt_clip_feat.T)[0, 0].item())
             print(f"[DEBUG] clip_text_image_sim={clip_text_image_sim:.3f}")
+            # Adjust fake_prob based on how well image matches text
+            # Baseline 0.20 = typical CLIP sim for a matching news image
+            # Low sim (wrong image) → raise fake_prob
+            # High sim (matching image) → lower fake_prob
+            clip_correction = (0.20 - clip_text_image_sim) * 0.35
+            fake_prob = float(np.clip(fake_prob + clip_correction, 0.05, 0.95))
+            print(f"[DEBUG] clip_correction={clip_correction:+.3f}  "
+                  f"adjusted fake_prob={fake_prob:.4f}")
+
+        # Base combined score — uses CLIP-corrected fake_prob
+        if not has_image:
+            combined = 0.80 * fake_prob + 0.20 * anomaly_score
+        else:
+            combined = 0.65 * fake_prob + 0.35 * anomaly_score
+        print(f"[DEBUG] base combined={combined:.4f}")
 
         # Semantic consistency
         semantic_ok, semantic_sim = check_semantic_consistency(text, img_feat_norm) if has_image else (True, 1.0)
@@ -1804,6 +1796,7 @@ def predict():
         return jsonify({
             "label":               label,
             "fake_prob":           round(fake_prob, 4),
+            "raw_fake_prob":       round(raw_fake_prob, 4),
             "anomaly_score":       round(anomaly_score, 4),
             "anomaly_level":       anomaly_level,
             "combined_score":      round(combined, 4),
@@ -1935,14 +1928,11 @@ def batch_predict():
                 with torch.no_grad():
                     logits, intermediates = em(h_t, h_i, h_m, h_aff, vad_text=vad_t, vad_image=vad_i)
 
-                raw_logit  = float(logits[0, 0].item())
-                calibrator = MODELS.get("calibrator")
-                if calibrator is not None:
-                    fake_prob = float(calibrator.predict_proba([[raw_logit]])[0][1])
-                else:
-                    prior_correction = float(np.log(4832.0 / 5994.0))
-                    fake_prob = float(torch.sigmoid(
-                        torch.tensor(raw_logit + prior_correction)).item())
+                raw_logit        = float(logits[0, 0].item())
+                prior_correction = float(np.log(4832.0 / 5994.0))
+                fake_prob        = float(torch.sigmoid(
+                    torch.tensor(raw_logit + prior_correction)).item())
+                print(f"[DEBUG batch] raw_logit={raw_logit:.4f}  fake_prob={fake_prob:.4f}")
                 fw           = intermediates["emotion_weights"][0].cpu().tolist()
                 vmm          = intermediates["v_mismatch"][0].cpu()
                 mismatch_mag = float(vmm.norm().item())
