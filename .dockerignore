@@ -14,4 +14,4 @@ deception-pipeline/
 cnn_embeddings_batches/
 vit_embeddings_batches/
 scene_vectors_twitter*
-prepared_clustering_data*
+prepared_clustering_data*anomaly_detection_results/anomaly_models.pt
