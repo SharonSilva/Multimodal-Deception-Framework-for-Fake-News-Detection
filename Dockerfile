@@ -52,7 +52,7 @@ RUN pip install --no-cache-dir \
     Pillow>=10.0 \
     emoji==2.2.0 \
     python-dotenv==1.1.1 \
-    huggingface_hub>=0.19.3,<1.0
+    "huggingface_hub>=0.19.3,<1.0"
 
 # Download Python models at build time
 COPY download_models.py .
