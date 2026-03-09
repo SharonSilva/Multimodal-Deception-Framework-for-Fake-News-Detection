@@ -2051,14 +2051,15 @@ def health():
 
 
 if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5001))
     print("=" * 60)
     print("Multimodal Deception Framework — Inference Server")
     print("=" * 60)
     load_all_models()
-    print("[server] Starting on http://0.0.0.0:5001")
+    print(f"[server] Starting on http://0.0.0.0:{port}")
     print("[server] POST /predict  →  { text, image_base64 }")
     print("[server] POST /batch    →  { posts: [{text, image_base64}, ...] }")
     print("[server] POST /describe →  { image_base64 }")
     print("[server] GET  /health   →  status check")
     print("=" * 60)
-    app.run(host="0.0.0.0", port=5001, debug=False, threaded=True)
+    app.run(host="0.0.0.0", port=port, debug=False, threaded=True)
