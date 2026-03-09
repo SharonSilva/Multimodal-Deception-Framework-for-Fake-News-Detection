@@ -805,7 +805,12 @@ def load_all_models():
 
     print("[server] Loading anomaly ensemble...")
     anom_path = os.path.join(PROJECT_ROOT, "anomaly_detection_results/anomaly_models.pt")
-    anom_data = torch.load(anom_path, map_location="cpu", weights_only=False)
+    try:
+        anom_data = torch.load(anom_path, map_location="cpu", weights_only=False)
+    except Exception as e:
+        print(f"[server] ⚠️  anomaly_models.pt failed to load: {e}")
+        print("[server] ℹ️  Using empty anomaly data — feature-based scoring active")
+        anom_data = {}
     MODELS["anomaly_models"]   = {}   # sklearn models stripped — not used at inference
     MODELS["ensemble_weights"] = anom_data.get("ensemble_weights", {})
 
