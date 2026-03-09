@@ -55,6 +55,12 @@ RUN pip install --no-cache-dir \
     python-dotenv==1.1.1 \
     "huggingface_hub>=0.19.3,<1.0"
 
+# Build frontend
+RUN apt-get update && apt-get install -y nodejs npm && rm -rf /var/lib/apt/lists/*
+COPY xai-demo/ /app/xai-demo/
+RUN cd /app/xai-demo && npm install && npm run build
+RUN mkdir -p /app/static && cp -r /app/xai-demo/dist/* /app/static/
+
 # Download Python models at build time
 COPY download_models.py .
 RUN python download_models.py
