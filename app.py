@@ -806,8 +806,8 @@ def load_all_models():
     print("[server] Loading anomaly ensemble...")
     anom_path = os.path.join(PROJECT_ROOT, "anomaly_detection_results/anomaly_models.pt")
     anom_data = torch.load(anom_path, map_location="cpu", weights_only=False)
-    MODELS["anomaly_models"]   = anom_data["models"]
-    MODELS["ensemble_weights"] = anom_data["ensemble_weights"]
+    MODELS["anomaly_models"]   = {}   # sklearn models stripped — not used at inference
+    MODELS["ensemble_weights"] = anom_data.get("ensemble_weights", {})
 
     for key in ["scaler", "pca"]:
         if key in anom_data:
