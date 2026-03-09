@@ -15,7 +15,7 @@ async function runPipelineAnalysis(text, imageBase64) {
      method: "POST",
      headers: { "Content-Type": "application/json" },
      body: JSON.stringify(body),
-     signal: AbortSignal.timeout(120000),
+     signal: AbortSignal.timeout(300000),
    }),
    imageBase64 ? describeImageWithGemini(imageBase64) : Promise.resolve(null),
  ]);
@@ -142,7 +142,7 @@ async function describeTextWithAI(text, vt) {
        max_tokens: 120,
        prompt: `Analyse this social media post text for a fake news detection system. In exactly ONE sentence (max 30 words), describe: what event/topic it claims, the emotional tone, and any sensational framing. Be specific and factual. Do not start with "The text" or "This post".\n\nPost: "${text}"\nText Arousal: ${vt.A.toFixed(2)}, Valence: ${vt.V.toFixed(2)}\n\nReply with only the one sentence description, nothing else.`
      }),
-     signal: AbortSignal.timeout(15000),
+     signal: AbortSignal.timeout(120000),
    });
    const data = await res.json();
    return data?.text || null;
@@ -158,7 +158,7 @@ async function explainMismatchWithAI(text, imgDesc, vt, vi, dA, dV, isFake) {
        max_tokens: 150,
        prompt: `You are an XAI component in a multimodal fake news detection system.\n\nPost text: "${text}"\nImage description: "${imgDesc}"\nText VAD: Arousal=${vt.A.toFixed(2)}, Valence=${vt.V.toFixed(2)}\nImage VAD: Arousal=${vi.A.toFixed(2)}, Valence=${vi.V.toFixed(2)}\nArousal mismatch Δ=${dA.toFixed(3)}, Valence mismatch Δ=${dV.toFixed(3)}\nVerdict: ${isFake ? "FAKE" : "AUTHENTIC"}\n\nIn exactly 2 sentences, explain specifically WHY the text and image ${isFake ? "do not match — focus on semantic entity mismatch if the image shows a person but text describes a disaster event" : "are emotionally consistent — what makes this authentic"}.\nBe specific to the actual content. Reply with only the 2 sentences.`
      }),
-     signal: AbortSignal.timeout(15000),
+     signal: AbortSignal.timeout(120000),
    });
    const data = await res.json();
    return data?.text || null;
@@ -173,7 +173,7 @@ async function describeImageWithGemini(imageBase64) {
      method: "POST",
      headers: { "Content-Type": "application/json" },
      body: JSON.stringify({ image_base64: base64Data }),
-     signal: AbortSignal.timeout(30000),
+     signal: AbortSignal.timeout(300000),
    });
    const data = await res.json();
    return data?.description || null;
