@@ -6,7 +6,7 @@ Valence-Arousal-Dominance (VAD) emotional incongruence as a manipulation signal,
 with a full Explainable AI (XAI) narrative layer.
 
 ## Live Demo
-🚀 [HuggingFace Spaces Deployment](https://huggingface.co/spaces/sharonnnnn245/deceptionxai)
+ [HuggingFace Spaces Deployment](https://huggingface.co/spaces/sharonnnnn245/deceptionxai)
 
 ## Features
 - Cross-modal VAD mismatch detection between text and image modalities
