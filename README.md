@@ -24,6 +24,20 @@ with a full Explainable AI (XAI) narrative layer.
 - Ollama with llama3.2 and moondream models
 - Dependencies listed in requirements.txt
 
+## Dataset
+Trained and evaluated on the MediaEval Verifying Multimedia Use (VMU) benchmark 
+dataset — 11,844 Twitter posts from Hurricane Sandy, Nepal Earthquake, Paris 
+Attacks, and Solar Eclipse events.
+
+## Results
+| Metric | Score |
+|--------|-------|
+| Accuracy | 94.76% |
+| F1-Score | 0.9482 |
+| AUC-ROC | 0.9823 |
+| Precision | 0.9326 |
+| Recall | 0.9643 |
+
 ## Installation
 ```bash
 git clone https://github.com/sharonnnnn245/Multimodal-Deception-Framework-for-Fake-News-Detection
@@ -42,17 +56,3 @@ ollama pull moondream
 # Run the Flask backend
 python app.py
 ```
-
-## Dataset
-Trained and evaluated on the MediaEval Verifying Multimedia Use (VMU) benchmark 
-dataset — 11,844 Twitter posts from Hurricane Sandy, Nepal Earthquake, Paris 
-Attacks, and Solar Eclipse events.
-
-## Results
-| Metric | Score |
-|--------|-------|
-| Accuracy | 94.76% |
-| F1-Score | 0.9482 |
-| AUC-ROC | 0.9823 |
-| Precision | 0.9326 |
-| Recall | 0.9643 |
