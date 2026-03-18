@@ -1,6 +1,5 @@
 """"
-TEMPORAL-AWARE CAMPAIGN DETECTION
-==================================
+
 Detects coordinated disinformation campaigns by finding groups of posts that are:
 - Content-similar (high embedding similarity)
 - Time-clustered (posted close together)
@@ -22,7 +21,7 @@ import networkx as nx
 try:
     import community as community_louvain
 except ImportError:
-    print("⚠️  Installing python-louvain...")
+    print("  Installing python-louvain...")
     import subprocess
     subprocess.check_call(['pip', 'install', 'python-louvain'])
     import community as community_louvain
@@ -39,14 +38,6 @@ warnings.filterwarnings('ignore')
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-print("="*80)
-print("TEMPORAL-AWARE CAMPAIGN DETECTION PIPELINE")
-print("="*80)
-
-# ============================================================================
-# CONFIGURATION
-# ============================================================================
-
 CONFIG = {
     'similarity_threshold': 0.5,      # Min cosine similarity to create edge
     'time_decay_tau': 3600,           # Time decay in seconds (1 hour)
@@ -56,18 +47,14 @@ CONFIG = {
     'top_k_neighbors': 50,            # Max neighbors per post (for efficiency)
 }
 
-print(f"\n📋 Configuration:")
+print(f"\n Configuration:")
 for key, value in CONFIG.items():
     print(f"   {key}: {value}")
 
-# ============================================================================
-# STEP 1: LOAD DATA
-# ============================================================================
 
 print("\n[STEP 1] Loading prepared data and anomaly results...")
 
 try:
-    # Load embeddings and metadata
     prepared_data = torch.load("prepared_clustering_data.pt", 
                               map_location=device, weights_only=False)
     z_out = prepared_data['z_out'].cpu().numpy()
@@ -75,21 +62,18 @@ try:
     timestamps = prepared_data['timestamps']
     post_ids = prepared_data['post_ids']
     
-    # Load anomaly detection results
     anomaly_results = pd.read_csv("anomaly_detection_results/anomaly_assignments.csv")
     
-    print(f"✅ Loaded: {len(z_out)} posts")
+    print(f" Loaded: {len(z_out)} posts")
     print(f"   Embeddings: {z_out.shape}")
     print(f"   Anomaly results: {len(anomaly_results)} rows")
     
 except Exception as e:
-    print(f"⚠️ Error loading data: {e}")
+    print(f" Error loading data: {e}")
     print("   Make sure you've run the anomaly detection pipeline first!")
     exit(1)
 
-# ============================================================================
-# STEP 2: FILTER TO ANOMALOUS POSTS (OPTIONAL)
-# ============================================================================
+# STEP 2: FILTER TO ANOMALOUS POSTS
 
 if CONFIG['focus_on_anomalous']:
     print("\n[STEP 2] Filtering to anomalous posts...")
@@ -104,7 +88,7 @@ if CONFIG['focus_on_anomalous']:
     post_ids_filtered = [post_ids[i] for i in anomalous_indices]
     anomaly_scores_filtered = anomaly_results.loc[anomalous_indices, 'anomaly_score'].values
     
-    print(f"✅ Filtered to {len(z_out_filtered)} anomalous posts "
+    print(f" Filtered to {len(z_out_filtered)} anomalous posts "
           f"({len(z_out_filtered)/len(z_out)*100:.1f}% of total)")
 else:
     print("\n[STEP 2] Using all posts...")
@@ -113,13 +97,13 @@ else:
     timestamps_filtered = timestamps
     post_ids_filtered = post_ids
     anomaly_scores_filtered = anomaly_results['anomaly_score'].values
-    print(f"✅ Using all {len(z_out_filtered)} posts")
+    print(f" Using all {len(z_out_filtered)} posts")
 
 n_posts = len(z_out_filtered)
 
-# ============================================================================
+
 # STEP 3: COMPUTE CONTENT SIMILARITY MATRIX
-# ============================================================================
+
 
 print("\n[STEP 3] Computing content similarity matrix...")
 
@@ -130,13 +114,12 @@ sim_matrix = cosine_similarity(z_out_filtered)
 # Clip negative similarities to 0 (only care about positive similarity)
 sim_matrix = np.clip(sim_matrix, 0, 1)
 
-print(f"✅ Similarity matrix computed: {sim_matrix.shape}")
+print(f"Similarity matrix computed: {sim_matrix.shape}")
 print(f"   Mean similarity: {sim_matrix[np.triu_indices_from(sim_matrix, k=1)].mean():.3f}")
 print(f"   Max similarity: {sim_matrix[np.triu_indices_from(sim_matrix, k=1)].max():.3f}")
 
-# ============================================================================
+
 # STEP 4: APPLY TIME DECAY
-# ============================================================================
 
 print("\n[STEP 4] Applying temporal decay...")
 
@@ -160,19 +143,18 @@ time_weights = np.exp(-delta_t / tau)
 # Combine similarity and time decay
 W = sim_matrix * time_weights
 
-print(f"✅ Time-decayed weights computed")
+print(f" Time-decayed weights computed")
 print(f"   Time decay factor (tau): {tau}s ({tau/3600:.1f} hours)")
 print(f"   Mean weight: {W[np.triu_indices_from(W, k=1)].mean():.3f}")
 
-# ============================================================================
-# STEP 5: WEIGHT BY ANOMALY SCORES (OPTIONAL)
-# ============================================================================
+
+# STEP 5: WEIGHT BY ANOMALY SCORES
+
 
 if CONFIG['weight_by_anomaly']:
     print("\n[STEP 5] Weighting edges by anomaly scores...")
     
     # Normalize anomaly scores to [0.5, 1.5] range
-    # (so even low-anomaly posts still have some weight)
     anomaly_normalized = (anomaly_scores_filtered - anomaly_scores_filtered.min()) / \
                         (anomaly_scores_filtered.max() - anomaly_scores_filtered.min() + 1e-10)
     anomaly_weights = 0.5 + anomaly_normalized  # Range: [0.5, 1.5]
@@ -181,22 +163,20 @@ if CONFIG['weight_by_anomaly']:
     anomaly_weight_matrix = np.sqrt(anomaly_weights[:, None] * anomaly_weights[None, :])
     W = W * anomaly_weight_matrix
     
-    print(f"✅ Applied anomaly weighting")
+    print(f"Applied anomaly weighting")
     print(f"   Anomaly score range: [{anomaly_scores_filtered.min():.3f}, "
           f"{anomaly_scores_filtered.max():.3f}]")
 else:
     print("\n[STEP 5] Skipping anomaly weighting...")
 
-# ============================================================================
 # STEP 6: CREATE SPARSE GRAPH
-# ============================================================================
 
 print("\n[STEP 6] Building post similarity graph...")
 
 # Keep only strong connections (above threshold)
 threshold = CONFIG['similarity_threshold']
 
-# Optional: keep only top-k neighbors per post for efficiency
+# keep only top-k neighbors per post for efficiency
 top_k = CONFIG['top_k_neighbors']
 
 print(f"   Applying threshold: {threshold}")
@@ -227,7 +207,7 @@ for i in tqdm(range(n_posts), desc="   Building edges"):
                 edges.append((i, j))
                 weights_list.append(row[j])
 
-print(f"\n✅ Graph constructed:")
+print(f"\n Graph constructed:")
 print(f"   Nodes: {n_posts}")
 print(f"   Edges: {len(edges)}")
 print(f"   Density: {len(edges) / (n_posts * (n_posts-1) / 2) * 100:.2f}%")
@@ -244,9 +224,7 @@ print(f"      Connected components: {nx.number_connected_components(G)}")
 print(f"      Average degree: {sum(dict(G.degree()).values()) / n_posts:.2f}")
 print(f"      Average clustering coefficient: {nx.average_clustering(G):.3f}")
 
-# ============================================================================
-# STEP 7: COMMUNITY DETECTION (CAMPAIGN DETECTION)
-# ============================================================================
+# STEP 7: COMMUNITY DETECTION 
 
 print("\n[STEP 7] Detecting campaigns via community detection...")
 
@@ -257,13 +235,11 @@ partition = community_louvain.best_partition(G, weight='weight', random_state=42
 # Get modularity score
 modularity = community_louvain.modularity(partition, G, weight='weight')
 
-print(f"✅ Community detection complete")
+print(f"Community detection complete")
 print(f"   Modularity: {modularity:.3f} (higher = better community structure)")
 print(f"   Communities found: {len(set(partition.values()))}")
 
-# ============================================================================
 # STEP 8: ANALYZE CAMPAIGNS
-# ============================================================================
 
 print("\n[STEP 8] Analyzing detected campaigns...")
 
@@ -279,7 +255,7 @@ significant_campaigns = {
     if len(nodes) >= min_size
 }
 
-print(f"\n✅ Campaign Analysis:")
+print(f"\nCampaign Analysis:")
 print(f"   Total communities: {len(campaigns)}")
 print(f"   Significant campaigns (≥{min_size} posts): {len(significant_campaigns)}")
 
@@ -338,7 +314,7 @@ campaign_stats_sorted = sorted(campaign_stats,
                                reverse=True)
 
 # Display top campaigns
-print(f"\n🚨 Top 10 Most Coordinated Campaigns:")
+print(f"\n Top 10 Most Coordinated Campaigns:")
 print(f"{'ID':<6} {'Posts':<8} {'Users':<8} {'P/U':<6} {'Hours':<8} {'Anomaly':<10} {'Coord Score':<12}")
 print("-" * 80)
 
@@ -351,9 +327,6 @@ for camp in campaign_stats_sorted[:10]:
           f"{camp['mean_anomaly_score']:<10.3f} "
           f"{camp['coordination_score']:<12.2f}")
 
-# ============================================================================
-# STEP 9: SAVE RESULTS
-# ============================================================================
 
 print("\n[STEP 9] Saving campaign detection results...")
 
@@ -400,11 +373,8 @@ for camp in campaign_stats_sorted[:20]:  # Top 20 campaigns
 # Save graph
 nx.write_gpickle(G, output_dir / "post_similarity_graph.gpickle")
 
-print(f"✅ Results saved to {output_dir}/")
+print(f" Results saved to {output_dir}/")
 
-# ============================================================================
-# STEP 10: VISUALIZATION
-# ============================================================================
 
 print("\n[STEP 10] Creating visualizations...")
 
@@ -505,7 +475,7 @@ try:
     ax7.legend(loc='best')
     
 except:
-    print("   ⚠️  Could not load UMAP visualization")
+    print("    Could not load UMAP visualization")
 
 # 8. Network degree distribution
 ax8 = fig.add_subplot(gs[2, 2])
@@ -517,13 +487,13 @@ ax8.set_ylabel('Frequency')
 ax8.set_yscale('log')
 
 plt.savefig(output_dir / "campaign_analysis.png", dpi=150, bbox_inches='tight')
-print(f"✅ Saved visualization")
+print(f"Saved visualization")
 
 print("\n" + "="*80)
-print("✅ CAMPAIGN DETECTION COMPLETE!")
+print("CAMPAIGN DETECTION COMPLETE!")
 print("="*80)
 
-print(f"\n📊 Summary:")
+print(f"\nSummary:")
 print(f"   Total posts analyzed: {n_posts}")
 print(f"   Communities detected: {len(campaigns)}")
 print(f"   Significant campaigns: {len(significant_campaigns)}")
@@ -538,9 +508,9 @@ if campaign_stats_sorted:
     print(f"      Coordination score: {top['coordination_score']:.2f}")
 
 print(f"\n   Output files:")
-print(f"      📄 campaign_assignments.csv - Post-to-campaign mapping")
-print(f"      📊 campaign_statistics.csv - Campaign-level metrics")
-print(f"      📁 campaign_X/ - Detailed reports for top campaigns")
-print(f"      🔗 post_similarity_graph.gpickle - NetworkX graph object")
-print(f"      📊 campaign_analysis.png - Comprehensive visualization")
+print(f"      campaign_assignments.csv - Post-to-campaign mapping")
+print(f"      campaign_statistics.csv - Campaign-level metrics")
+print(f"      campaign_X/ - Detailed reports for top campaigns")
+print(f"      post_similarity_graph.gpickle - NetworkX graph object")
+print(f"      campaign_analysis.png - Comprehensive visualization")
 print(f"\n   Results saved to: {output_dir}/")

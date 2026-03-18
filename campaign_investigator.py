@@ -1,4 +1,4 @@
-""""
+"""
 CAMPAIGN INVESTIGATION TOOL
 ============================
 Deep-dive analysis of detected campaigns with:

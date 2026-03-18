@@ -1,15 +1,3 @@
-""""
-ANOMALY DETECTION PIPELINE FOR FAKE NEWS DETECTION
-===================================================
-Better suited for data on a continuum (low clustering silhouette).
-Uses multiple anomaly detection methods to find suspicious posts.
-
-Outputs:
-- anomaly_assignments.csv (same format as clustering)
-- anomaly_analysis.png (visualizations)
-- suspicious_users.csv (enhanced user profiling)
-"""
-
 import torch
 import numpy as np
 import pandas as pd
@@ -29,14 +17,6 @@ warnings.filterwarnings('ignore')
 
 device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
 
-print("="*80)
-print("ANOMALY DETECTION PIPELINE FOR FAKE NEWS DETECTION")
-print("="*80)
-
-# ============================================================================
-# STEP 1: LOAD DATA
-# ============================================================================
-
 print("\n[STEP 1] Loading data...")
 
 try:
@@ -47,9 +27,9 @@ try:
     timestamps = prepared_data['timestamps']
     post_ids = prepared_data['post_ids']
     
-    print(f"✅ Loaded: {len(z_out)} posts")
+    print(f" Loaded: {len(z_out)} posts")
 except:
-    print("⚠️ Could not load prepared data")
+    print(" Could not load prepared data")
     exit(1)
     
 # Load ground truth labels
@@ -64,11 +44,7 @@ labels_aligned = np.array([
 ])
 
 real_mask = labels_aligned == 'real'
-print(f"✅ Real posts: {real_mask.sum()} | Fake posts: {(~real_mask).sum()}")
-
-# ============================================================================
-# STEP 2: FEATURE ENGINEERING
-# ============================================================================
+print(f" Real posts: {real_mask.sum()} | Fake posts: {(~real_mask).sum()}")
 
 print("\n[STEP 2] Advanced feature engineering...")
 
@@ -100,11 +76,7 @@ X_engineered = np.hstack([
     z_v_cosine                # 1-dim
 ])
 
-print(f"✅ Feature vector: {X_engineered.shape}")
-
-# ============================================================================
-# STEP 3: PREPROCESSING
-# ============================================================================
+print(f" Feature vector: {X_engineered.shape}")
 
 print("\n[STEP 3] Scaling & dimensionality reduction...")
 
@@ -116,19 +88,11 @@ X_scaled = scaler.fit_transform(X_engineered)
 pca = PCA(n_components=0.95, random_state=42)
 X_reduced = pca.fit_transform(X_scaled)
 
-print(f"✅ Reduced: {X_scaled.shape[1]} → {X_reduced.shape[1]} dimensions")
+print(f"\ Reduced: {X_scaled.shape[1]} → {X_reduced.shape[1]} dimensions")
 print(f"   Explained variance: {pca.explained_variance_ratio_.sum():.1%}")
 
-# ============================================================================
-# STEP 4: MULTIPLE ANOMALY DETECTION METHODS
-# ============================================================================
 
 print("\n[STEP 4] Running multiple anomaly detection algorithms...")
-
-# ============================================================================
-# STEP 4: MULTIPLE ANOMALY DETECTION METHODS (fit on real posts only)
-# ============================================================================
-
 print("\n[STEP 4] Running multiple anomaly detection algorithms...")
 print(f"   Fitting on {real_mask.sum()} real posts, scoring all {len(X_reduced)} posts...")
 
@@ -146,7 +110,7 @@ iso_forest.fit(X_reduced[real_mask])
 iso_scores = -iso_forest.score_samples(X_reduced)
 iso_labels = iso_forest.predict(X_reduced)
 anomaly_scores['isolation_forest'] = iso_scores
-print(f"   ✅ Detected {(iso_labels == -1).sum()} anomalies ({(iso_labels == -1).sum()/len(X_reduced)*100:.1f}%)")
+print(f"    Detected {(iso_labels == -1).sum()} anomalies ({(iso_labels == -1).sum()/len(X_reduced)*100:.1f}%)")
 
 # 4.2 Local Outlier Factor
 print("   [4.2] Local Outlier Factor...")
@@ -159,23 +123,19 @@ lof.fit(X_reduced[real_mask])
 lof_labels = lof.predict(X_reduced)
 lof_scores = -lof.score_samples(X_reduced)
 anomaly_scores['lof'] = lof_scores
-print(f"   ✅ Detected {(lof_labels == -1).sum()} anomalies ({(lof_labels == -1).sum()/len(X_reduced)*100:.1f}%)")
+print(f"    Detected {(lof_labels == -1).sum()} anomalies ({(lof_labels == -1).sum()/len(X_reduced)*100:.1f}%)")
 
 # 4.3 One-Class SVM
 print("   [4.3] One-Class SVM...")
 ocsvm = OneClassSVM(kernel='rbf', gamma='auto', nu=0.1)
 ocsvm.fit(X_reduced[real_mask])
 ocsvm_labels = ocsvm.predict(X_reduced)
-# OCSVM score_samples returns all-negative values where
-# more negative = more anomalous (further outside boundary)
-# So we negate to flip: high positive = more anomalous
-# But since all values are negative, raw = -score_samples is also negative.
-# Instead: anomaly = -score_samples, then shift to positive range
+
 ocsvm_raw = -ocsvm.score_samples(X_reduced)  # all negative
 ocsvm_shift = float(ocsvm_raw.min())         # save this offset
 ocsvm_scores = ocsvm_raw - ocsvm_shift       # shift to [0, range]
 anomaly_scores['ocsvm'] = ocsvm_scores
-print(f"   ✅ Detected {(ocsvm_labels == -1).sum()} anomalies ({(ocsvm_labels == -1).sum()/len(X_reduced)*100:.1f}%)")
+print(f"    Detected {(ocsvm_labels == -1).sum()} anomalies ({(ocsvm_labels == -1).sum()/len(X_reduced)*100:.1f}%)")
 
 # 4.4 Elliptic Envelope
 print("   [4.4] Elliptic Envelope (Robust Covariance)...")
@@ -184,11 +144,7 @@ elliptic.fit(X_reduced[real_mask])
 elliptic_labels = elliptic.predict(X_reduced)
 elliptic_scores = -elliptic.score_samples(X_reduced)
 anomaly_scores['elliptic'] = elliptic_scores
-print(f"   ✅ Detected {(elliptic_labels == -1).sum()} anomalies ({(elliptic_labels == -1).sum()/len(X_reduced)*100:.1f}%)")
-
-# ============================================================================
-# STEP 5: ENSEMBLE ANOMALY SCORING
-# ============================================================================
+print(f"    Detected {(elliptic_labels == -1).sum()} anomalies ({(elliptic_labels == -1).sum()/len(X_reduced)*100:.1f}%)")
 
 print("\n[STEP 5] Creating ensemble anomaly scores...")
 
@@ -202,10 +158,10 @@ for method, scores in anomaly_scores.items():
 
 # Ensemble: weighted average
 weights = {
-    'isolation_forest': 0.35,  # Best for high-dimensional data
-    'lof': 0.30,               # Good for local anomalies
-    'ocsvm': 0.20,             # Global view
-    'elliptic': 0.15           # Statistical baseline
+    'isolation_forest': 0.35,  
+    'lof': 0.30,               
+    'ocsvm': 0.20,             
+    'elliptic': 0.15           
 }
 
 ensemble_score = np.zeros(len(X_reduced))
@@ -233,17 +189,12 @@ anomaly_levels = np.array([get_anomaly_level(s) for s in ensemble_score])
 level_to_id = {'normal': 0, 'low': 1, 'medium': 2, 'high': 3, 'critical': 4}
 anomaly_labels = np.array([level_to_id[level] for level in anomaly_levels])
 
-print(f"✅ Ensemble scoring complete")
+print(f" Ensemble scoring complete")
 print(f"\n   Anomaly Distribution:")
 for level in ['normal', 'low', 'medium', 'high', 'critical']:
     count = (anomaly_levels == level).sum()
     pct = count / len(anomaly_levels) * 100
     print(f"      {level:8s}: {count:5d} posts ({pct:5.1f}%)")
-
-
-# ============================================================================
-# STEP 7: USER-LEVEL BEHAVIORAL ANALYSIS
-# ============================================================================
 
 print("\n[STEP 7] Enhanced user behavior analysis...")
 
@@ -327,7 +278,7 @@ suspicious_users = {
     if behavior['is_suspicious']
 }
 
-print(f"\n✅ User Analysis Complete:")
+print(f"\n User Analysis Complete:")
 print(f"   Total users: {len(user_behavior)}")
 print(f"   Suspicious users: {len(suspicious_users)} ({len(suspicious_users)/len(user_behavior)*100:.1f}%)")
 
@@ -340,9 +291,6 @@ if suspicious_users:
               f"posts={behavior['n_posts']} | "
               f"critical={behavior['n_critical']} high={behavior['n_high']} medium={behavior['n_medium']}")
 
-# ============================================================================
-# STEP 8: SAVE RESULTS
-# ============================================================================
 
 print("\n[STEP 8] Saving results...")
 
@@ -415,17 +363,13 @@ torch.save({
     'ocsvm_shift': ocsvm_shift
 }, output_dir / "anomaly_models.pt")
 
-print(f"\n✅ Saved with score distributions")
+print(f"\n Saved with score distributions")
 print(f"   Ensemble: p25={ensemble_score_distribution['p25']:.4f} "
       f"p50={ensemble_score_distribution['p50']:.4f} "
       f"p75={ensemble_score_distribution['p75']:.4f} "
       f"p95={ensemble_score_distribution['p95']:.4f}")
 
-print(f"✅ Saved results to {output_dir}/")
-
-# ============================================================================
-# STEP 9: COMPREHENSIVE VISUALIZATION
-# ============================================================================
+print(f" Saved results to {output_dir}/")
 
 print("\n[STEP 9] Creating visualizations...")
 
@@ -479,4 +423,4 @@ axes[1, 1].tick_params(axis='x', rotation=45)
 
 plt.tight_layout()
 plt.savefig(output_dir / "anomaly_analysis.png", dpi=150, bbox_inches='tight')
-print(f"✅ Saved visualization")
+print(f"\ Saved visualization")

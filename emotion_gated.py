@@ -1,11 +1,3 @@
-# ============================================================
-# Emotion Gated Mechanism 
-# ============================================================
-#Emotion_Gated.py
-    
-# -------------------------
-# Load pretrained HF emotion classifier
-# -------------------------
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import torch
 import torch.nn.functional as F
@@ -16,9 +8,6 @@ import pandas as pd
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-# -------------------------
-# Load Dataset
-# -------------------------
 df = pd.read_pickle("Dataset/twitter/df_with_embeddings.pkl")
 
 emotion_model_name = "nateraw/bert-base-uncased-emotion"
@@ -26,9 +15,7 @@ tokenizer_emotion = AutoTokenizer.from_pretrained(emotion_model_name)
 emotion_model = AutoModelForSequenceClassification.from_pretrained(emotion_model_name).to(device)
 emotion_model.eval()
 
-# -------------------------
-# Canonical emotions + VAD mapping
-# -------------------------
+
 canonical_emotions = ["fear", "anger", "joy", "sadness", "neutral"]
 canonical_indices = {em: i for i, em in enumerate(canonical_emotions)}
 

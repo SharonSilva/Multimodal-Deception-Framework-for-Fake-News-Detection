@@ -16,7 +16,7 @@ hf_hub_download(
     token=token,
     repo_type="model"
 )
-print("✅ best_emotion_aware_detector.pth")
+print(" best_emotion_aware_detector.pth")
 
 hf_hub_download(
     repo_id=repo_id,
@@ -25,7 +25,7 @@ hf_hub_download(
     token=token,
     repo_type="model"
 )
-print("✅ anomaly_models.pt")
+print(" anomaly_models.pt")
 
 hf_hub_download(
     repo_id=repo_id,
@@ -34,6 +34,6 @@ hf_hub_download(
     token=token,
     repo_type="model"
 )
-print("✅ platt_calibrator.pkl")
+print(" platt_calibrator.pkl")
 
 print("All models ready")

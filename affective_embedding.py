@@ -1,6 +1,5 @@
 """
 affective_embedding.py
-----------------------
 
 Fuses text, face, and scene VAD projections into a unified affective embedding
 for multimodal fake news / deception detection.
@@ -17,9 +16,9 @@ import torch.nn.functional as F
 import pandas as pd
 import numpy as np
 
-# -------------------------------------------------------
-# 🔹 1. Emotion Fusion Layer — combines variable-dim VAD sources
-# -------------------------------------------------------
+
+# Emotion Fusion Layer — combines variable-dim VAD sources
+
 class EmotionFusionLayer(nn.Module):
     """
     Fuses VAD embeddings from text, face, and scene into a unified affective embedding.
@@ -38,9 +37,7 @@ class EmotionFusionLayer(nn.Module):
         affective_embedding = self.activation(self.norm2(self.fc2(fused)))
         return F.normalize(affective_embedding, dim=-1)
 
-# -------------------------------------------------------
-# 🔹 2. Utility: Align embeddings by post_id
-# -------------------------------------------------------
+#  Utility: Align embeddings by post_id
 def align_embeddings_by_post(df_embeddings, post_id_col, embedding_col, post_order, zero_fill_dim=None):
     """
     Align embeddings to posts using post_id mapping.
@@ -69,9 +66,8 @@ def align_embeddings_by_post(df_embeddings, post_id_col, embedding_col, post_ord
 
     return torch.tensor(np.stack(aligned_embeddings), dtype=torch.float32)
 
-# -------------------------------------------------------
-# 🔹 3. Affective Embedding Generator
-# -------------------------------------------------------
+# Affective Embedding Generator
+
 class AffectiveEmbeddingGenerator:
     """
     Loads precomputed VAD projections (text, face, scene),
@@ -86,13 +82,13 @@ class AffectiveEmbeddingGenerator:
         df_post_map = pd.read_csv(post_to_image_path)  # must contain ['post_id','image_id']
         self.post_order = df_post_map['post_id'].tolist()
 
-        # ---------------- Text embeddings ----------------
+        #Text embeddings 
         self.vad_text = torch.load(text_vad_path).float()
         if len(self.vad_text) > len(self.post_order):
             self.vad_text = self.vad_text[:len(self.post_order)]
 
-        # ---------------- Face embeddings ----------------
-        # ---------------- Face embeddings (optional) ----------------
+        # Face embeddings 
+        # Face embeddings 
         try:
             df_face = pd.read_pickle(face_vad_path)
             df_face['image_filename'] = df_face['pth'].apply(lambda x: x.split('/')[-1])
@@ -105,13 +101,13 @@ class AffectiveEmbeddingGenerator:
                 post_order=self.post_order,
                 zero_fill_dim=face_dim
             )
-            print(f"✅ Face VAD loaded: {self.vad_face.shape}")
+            print(f"Face VAD loaded: {self.vad_face.shape}")
         except Exception as e:
-            print(f"⚠️  Face VAD unavailable ({e}) — using zeros")
+            print(f"Face VAD unavailable ({e}) — using zeros")
             face_dim = 64
             self.vad_face = torch.zeros(len(self.post_order), face_dim)
 
-        # ---------------- Scene embeddings ----------------
+        # Scene embeddings 
         df_scene = pd.read_csv(scene_vad_path)  # contains ['image','vad_embedding']
 
         # Convert string to array if needed
@@ -164,16 +160,10 @@ class AffectiveEmbeddingGenerator:
 
         if save_path:
             np.save(save_path, affective_embedding.cpu().numpy())
-            print(f"✅ Affective embeddings saved to {save_path}")
+            print(f"Affective embeddings saved to {save_path}")
 
         return affective_embedding
-    
-    
-    
 
-# -------------------------------------------------------
-# 🔹 4. Example Usage
-# -------------------------------------------------------
 if __name__ == "__main__":
     generator = AffectiveEmbeddingGenerator(
         text_vad_path="Dataset/twitter/text_vad_embedding.pt",
@@ -188,19 +178,3 @@ if __name__ == "__main__":
     )
     print("Affective embedding shape:", affective_embedding.shape)
     print("Sample:", affective_embedding[:5])
-    
-    
-# import numpy as np
-
-# # Load the saved embeddings
-# affective_embeddings = np.load("Dataset/affectnet/affective_embedding.npy")
-
-# print("Shape of embeddings:", affective_embeddings.shape)
-
-
-# # Sum absolute values across each row (each post)
-# zero_mask = np.sum(np.abs(affective_embeddings), axis=1) == 0
-
-# # Count how many embeddings are zero
-# num_zero_embeddings = np.sum(zero_mask)
-# print(f"Number of posts with all-zero affective embeddings: {num_zero_embeddings} / {affective_embeddings.shape[0]}")

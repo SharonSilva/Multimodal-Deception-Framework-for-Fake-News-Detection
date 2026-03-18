@@ -1,8 +1,3 @@
-"""
-FULL TRAINING PIPELINE - SAFE FROM DOUBLE-BACKWARD
-==================================================
-Single backward, detached metrics, gradient-safe augmentation
-"""
 
 import torch
 import torch.nn as nn
