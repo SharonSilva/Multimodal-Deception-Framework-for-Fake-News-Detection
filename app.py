@@ -1,5 +1,4 @@
-# ── GDELT Event Verification Layer ───────────────────────────────────────────
-#
+
 # Queries the GDELT 2.0 Event Database to verify whether a claimed event
 # (terror attack, earthquake, flood, etc.) actually occurred near the
 # location and time mentioned in a post.
@@ -86,7 +85,7 @@ def load_calibrator():
         return cal
     return None
 
-# ── Simple in-memory cache (key → (result, timestamp)) ───────────────────────
+# Simple in-memory cache --> key to result timestamp
 _GDELT_CACHE: dict = {}
 _CACHE_TTL_SECONDS = 600  # 10 minutes
 
@@ -110,12 +109,12 @@ def _gdelt_fetch(url: str, timeout: int = 8) -> Optional[dict]:
         return None
 
 
-# ── Location extractor ────────────────────────────────────────────────────────
+# Location extractor 
 # Maps common location mentions to GDELT country/city codes.
 # GDELT uses FIPS 10-4 country codes and ActionGeo fields.
 
 LOCATION_MAP = {
-    # Cities → (country_code, city_name_for_search)
+    # Cities (country_code, city_name_for_search)
     "paris":        ("FR", "Paris"),
     "london":       ("UK", "London"),
     "new york":     ("US", "New York"),
@@ -169,8 +168,8 @@ LOCATION_MAP = {
     "venezuela":    ("VE", "Venezuela"),
 }
 
-# ── Event type extractor ──────────────────────────────────────────────────────
-# Maps text keywords → GDELT CAMEO root event codes + GKG theme keywords
+# Event type extractor
+# Maps text keywords 
 
 EVENT_PATTERNS = [
     # (keyword_list, cameo_codes, gkg_themes, event_label)
@@ -312,7 +311,7 @@ def _query_gdelt_doc(location: str, themes: list, days_back: int = 3) -> dict:
     else:
         query = loc_query
 
-    # GDELT Doc API — searches article titles and content
+    # searches article titles and content
     encoded = urllib.parse.quote(query)
     url = (
         f"https://api.gdeltproject.org/api/v2/doc/doc"
@@ -356,7 +355,7 @@ def _query_gdelt_events(location: str, country_code: str,
     # GDELT Events uses a different endpoint — the free BigQuery-like API
     cameo_filter = "%2C".join(cameo_codes[:4])  # max 4 codes, URL-encoded comma
 
-    # Use GDELT's free event lookup — filter by EventRootCode and ActionGeo_CountryCode
+    # Use GDELT's free event lookup , filter by EventRootCode and ActionGeo_CountryCode
     country_filter = f"&ActionGeo_CountryCode={country_code}" if country_code else ""
     url = (
         f"https://api.gdeltproject.org/api/v2/doc/doc"
@@ -450,25 +449,25 @@ def verify_event_gdelt(text: str) -> dict:
             info["cameo_codes"], days_back=4
         )
 
-        # Combine — take max confidence from either strategy
+        # combine take max confidence from either strategy
         best_conf    = max(doc_result["confidence"], event_result["confidence"])
         total_sources = doc_result["articles_found"] + event_result["events_found"]
         all_sources   = doc_result.get("sources", [])
 
-        # ── Interpret confidence → verdict + scoring adjustments ─────────────
+        # Interpret confidence = verdict + scoring adjustments 
         #
         # High confidence (≥0.70): Event well-documented → trust content more
-        #   - Raise fake threshold: needs stronger evidence to call fake
-        #   - Cap anomaly tightly: high-arousal real events look anomalous
+        #   Raise fake threshold: needs stronger evidence to call fake
+        #   Cap anomaly tightly: high-arousal real events look anomalous
         #
         # Medium confidence (0.35–0.70): Some evidence but not conclusive
-        #   - Small positive threshold adjustment
-        #   - Moderate anomaly cap
+        #   Small positive threshold adjustment
+        #   Moderate anomaly cap
         #
         # Low confidence (<0.35): Event not found in GDELT
-        #   - Lower fake threshold: easier to flag as fake
-        #   - Add penalty to combined score
-        #   - This is the Tokyo earthquake fabrication case
+        #   Lower fake threshold: easier to flag as fake
+        #   Add penalty to combined score
+        #   This is the Tokyo earthquake fabrication case
 
         if best_conf >= 0.70:
             verdict       = "verified"
@@ -514,13 +513,11 @@ def verify_event_gdelt(text: str) -> dict:
         return result
 
     except Exception as e:
-        print(f"[gdelt] ❌ error: {e}")
+        print(f"[gdelt] error: {e}")
         default["verdict"] = "error"
         return default
 
-# ═══════════════════════════════════════════════════════════════
-# ORIGINAL app.py — unchanged below, GDELT integrated into /predict
-# ═══════════════════════════════════════════════════════════════
+#GDELT integrated into /predict
 
 """
 app.py — Multimodal Deception Framework Inference Server
@@ -590,7 +587,7 @@ def compute_image_vad(img_feat_normalized):
     clip_model = MODELS["clip"]
     tokenize   = MODELS["clip_tok"]
 
-    # ── AROUSAL: high vs low energy scenes ───────────────────────────────────
+    #AROUSAL: high vs low energy scenes 
     high_arousal_prompts = [
         "a loud concert crowd cheering and dancing with bright stage lights",
         "an explosion fire blast emergency chaos",
@@ -606,7 +603,7 @@ def compute_image_vad(img_feat_normalized):
         "an empty library reading room",
     ]
 
-    # ── VALENCE: positive vs negative scenes ─────────────────────────────────
+    # VALENCE: positive vs negative scenes 
     high_valence_prompts = [
         "a joyful celebration party with people smiling and laughing",
         "a beautiful wedding with happy people",
@@ -622,7 +619,7 @@ def compute_image_vad(img_feat_normalized):
         "a person crying in distress alone",
     ]
 
-    # ── DOMINANCE: powerful vs powerless scenes ───────────────────────────────
+    # DOMINANCE: powerful vs powerless scenes 
     high_dominance_prompts = [
         "a military parade with soldiers in formation",
         "a powerful leader giving a speech to a large crowd",
@@ -779,12 +776,12 @@ def load_all_models():
     MODELS["clip"]      = clip_model
     MODELS["clip_prep"] = clip_prep
     MODELS["clip_tok"]  = open_clip.get_tokenizer("ViT-L-14")
-    print("[server] ✅ CLIP loaded")
+    print("[server]  CLIP loaded")
 
     print("[server] Loading SentenceTransformer...")
     from sentence_transformers import SentenceTransformer
     MODELS["st"] = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-    print("[server] ✅ SentenceTransformer loaded")
+    print("[server]  SentenceTransformer loaded")
 
     print("[server] Loading EmotionAwareFakeNewsDetector...")
     from rough_work import EmotionAwareFakeNewsDetector
@@ -796,22 +793,22 @@ def load_all_models():
     ckpt_path = os.path.join(PROJECT_ROOT, "checkpoints/best_emotion_aware_detector.pth")
     state     = torch.load(ckpt_path, map_location=device, weights_only=False)
     missing, unexpected = emotion_model.load_state_dict(state, strict=False)
-    if missing:    print(f"[server]   ⚠ Missing ({len(missing)}): {missing[:4]}")
-    if unexpected: print(f"[server]   ⚠ Unexpected ({len(unexpected)}): {unexpected[:4]}")
-    if not missing and not unexpected: print("[server]   ✅ Weights loaded perfectly")
+    if missing:    print(f"[server]  Missing ({len(missing)}): {missing[:4]}")
+    if unexpected: print(f"[server]  Unexpected ({len(unexpected)}): {unexpected[:4]}")
+    if not missing and not unexpected: print("[server]    Weights loaded perfectly")
     emotion_model.eval()
     MODELS["emotion_model"] = emotion_model
-    print("[server] ✅ EmotionAwareFakeNewsDetector loaded")
+    print("[server]  EmotionAwareFakeNewsDetector loaded")
 
     print("[server] Loading anomaly ensemble...")
     anom_path = os.path.join(PROJECT_ROOT, "anomaly_detection_results/anomaly_models.pt")
     try:
         anom_data = torch.load(anom_path, map_location="cpu", weights_only=False)
     except Exception as e:
-        print(f"[server] ⚠️  anomaly_models.pt failed to load: {e}")
-        print("[server] ℹ️  Using empty anomaly data — feature-based scoring active")
+        print(f"[server]  anomaly_models.pt failed to load: {e}")
+        print("[server] ℹ  Using empty anomaly data — feature-based scoring active")
         anom_data = {}
-    MODELS["anomaly_models"]   = {}   # sklearn models stripped — not used at inference
+    MODELS["anomaly_models"]   = {}   # sklearn models stripped 
     MODELS["ensemble_weights"] = anom_data.get("ensemble_weights", {})
 
     for key in ["scaler", "pca"]:
@@ -820,37 +817,37 @@ def load_all_models():
 
     if "method_score_distributions" in anom_data:
         MODELS["method_score_distributions"] = anom_data["method_score_distributions"]
-        print(f"[server] ✅ Per-method score distributions loaded")
+        print(f"[server]  Per-method score distributions loaded")
         for name, d in anom_data["method_score_distributions"].items():
             print(f"[server]    {name}: "
                   f"range=[{d['min']:.4f}, {d['max']:.4f}]")
     else:
-        print("[server] ⚠️  method_score_distributions missing!")
+        print("[server] method_score_distributions missing!")
         print("[server]    Re-run anomaly_detection_pipeline.py first")
         MODELS["method_score_distributions"] = {}
 
     if "ensemble_score_distribution" in anom_data:
         MODELS["ensemble_score_distribution"] = anom_data["ensemble_score_distribution"]
         d = anom_data["ensemble_score_distribution"]
-        print(f"[server] ✅ Ensemble distribution loaded: "
+        print(f"[server]  Ensemble distribution loaded: "
               f"p25={d['p25']:.4f} p50={d['p50']:.4f} "
               f"p75={d['p75']:.4f} p95={d['p95']:.4f}")
     else:
-        print("[server] ⚠️  ensemble_score_distribution missing!")
+        print("[server]   ensemble_score_distribution missing!")
         MODELS["ensemble_score_distribution"] = {}
         
     if 'ocsvm_shift' in anom_data:
         MODELS['ocsvm_shift'] = anom_data['ocsvm_shift']
-        print(f"[server] ✅ OCSVM shift loaded: {anom_data['ocsvm_shift']:.4f}")
+        print(f"[server]  OCSVM shift loaded: {anom_data['ocsvm_shift']:.4f}")
     else:
         MODELS['ocsvm_shift'] = -13.1153
-        print("[server] ⚠️  ocsvm_shift missing — using fallback")
+        print("[server]   ocsvm_shift missing — using fallback")
 
-    print("[server] ✅ Anomaly ensemble loaded")
+    print("[server] Anomaly ensemble loaded")
 
     if 'training_scores' in anom_data:
         MODELS['training_scores'] = anom_data['training_scores']
-        print(f"[server] ✅ Training score arrays loaded for percentile ranking")
+        print(f"[server]  Training score arrays loaded for percentile ranking")
     else:
         print("[server] training_scores missing - re-run patch_anomaly_scores.py")
         MODELS['training_scores'] = {}
@@ -860,7 +857,7 @@ def load_all_models():
         "iso_forest":0.43, "lof":0.12, "ocsvm":0.29,
         "elliptic":0.05, "isolation_forest":0.43
     })
-    print(f"[server] ✅ Thresholds: { {k: round(v,4) for k,v in MODELS['thresholds'].items()} }")
+    print(f"[server]  Thresholds: { {k: round(v,4) for k,v in MODELS['thresholds'].items()} }")
 
     # Load Platt calibrator if already fitted   ← 4 spaces (correct, outside except)
     cal_path = os.path.join(PROJECT_ROOT, "platt_calibrator.pkl")
@@ -868,13 +865,13 @@ def load_all_models():
     if os.path.exists(cal_path):
         with open(cal_path, "rb") as f:
             MODELS["calibrator"] = pickle.load(f)
-        print(f"[server] ✅ Platt calibrator loaded from {cal_path}")
+        print(f"[server]  Platt calibrator loaded from {cal_path}")
     else:
-        print(f"[server] ℹ️  No calibrator found — POST /calibrate to fit one")
+        print(f"[server]  No calibrator found — POST /calibrate to fit one")
         MODELS["calibrator"] = None
 
-    print("[server] ✅ All models ready\n")
-    print("[server] ℹ Vision model: moondream auto-selected — ollama serve must be running")
+    print("[server] All models ready\n")
+    print("[server] Vision model: moondream auto-selected — ollama serve must be running")
 
 
 def check_semantic_consistency(text, img_feat_norm):
@@ -946,7 +943,7 @@ def check_semantic_consistency(text, img_feat_norm):
 
         print(f"[semantic] person_sim={person_sim:.3f} non_person_sim={non_person_sim:.3f}")
         if person_sim > 0.22 and person_sim > non_person_sim + 0.08:
-            print(f"[semantic] ⚠ Person/portrait detected in disaster-text post → INCONSISTENT")
+            print(f"[semantic] Person/portrait detected in disaster-text post - INCONSISTENT")
             return False, person_sim
 
     if not topic_prompts:
@@ -1212,9 +1209,7 @@ def check_entity_consistency_llm(text, image_description, img_feat_norm=None):
     If ambiguous → fall through to Stage 2
 
     Stage 2 — llama3.2 LLM check (fallback for ambiguous cases only)
-    ────────────────────────────────────────────────────────────────
-    Only runs when CLIP cannot make a confident decision. Uses an improved prompt
-    with explicit rules for contextually adjacent images.
+
     """
     import urllib.request, json as json_lib
 
@@ -1249,10 +1244,6 @@ def check_entity_consistency_llm(text, image_description, img_feat_norm=None):
         clip_model = MODELS["clip"]
         tokenize   = MODELS["clip_tok"]
 
-        # Build event-specific "valid evidence" prompts.
-        # Key insight: for breaking news, valid visual evidence includes
-        # the CONTEXT of the event, not just the event itself.
-        # Real journalists photograph what they can see — crowds, responders,
         # the scene around the event, not just the explosion/rubble.
         if attack_text or military_text:
             match_prompts = [
@@ -1387,7 +1378,7 @@ def check_entity_consistency_llm(text, image_description, img_feat_norm=None):
             # Ambiguous — fall through to LLM Stage 2
             print(f"[clip_entity] Ambiguous (match={match_score:.3f} reject={reject_score:.3f}) → LLM Stage 2")
 
-    # ── Stage 2: LLM fallback for ambiguous cases ─────────────────────────────
+    # tage 2: LLM fallback for ambiguous cases 
     # Only reaches here when CLIP couldn't make a confident call,
     # OR when img_feat_norm is not available.
     try:
@@ -1430,7 +1421,7 @@ Answer with exactly one word: MATCH or MISMATCH"""
             return is_match, response
 
     except Exception as e:
-        print(f"[llm_entity] ❌ LLM unavailable: {e} — defaulting to MATCH (no evidence of mismatch)")
+        print(f"[llm_entity] LLM unavailable: {e} — defaulting to MATCH (no evidence of mismatch)")
         return True, "skipped"
 
 
@@ -1445,7 +1436,7 @@ def calibrate():
     """
     Fits Platt scaling calibrator using your actual preprocessed dataset.
     Runs the full embedding pipeline on validation split, collects raw logits,
-    fits LogisticRegression on logit → label, saves to platt_calibrator.pkl.
+    fits LogisticRegression on logit - label, saves to platt_calibrator.pkl.
     Call once after startup: POST /calibrate
     """
     try:
@@ -1530,7 +1521,7 @@ def calibrate():
         for logit, prob in zip(test_logits.flatten(), test_probs):
             print(f"[calibration]   logit={logit:+.1f} → {prob:.3f}")
 
-        print(f"[calibration] ✅ Done. Coef={calibrator.coef_[0][0]:.4f}  "
+        print(f"[calibration]  Done. Coef={calibrator.coef_[0][0]:.4f}  "
               f"Intercept={calibrator.intercept_[0]:.4f}")
 
         return jsonify({
@@ -1546,7 +1537,7 @@ def calibrate():
         traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# ── /predict — GDELT integrated here ─────────────────────────────────────────
+# /predict — GDELT integrated here 
 @app.route("/predict", methods=["POST"])
 def predict():
     try:
@@ -1562,13 +1553,13 @@ def predict():
         tokenize   = MODELS["clip_tok"]
         prep       = MODELS["clip_prep"]
 
-        # 1. Text embedding
+        # Text embedding
         text_emb = embed_text(text).to(device)
 
-        # 2. Text VAD
+        # Text VAD
         vad_text_d = compute_text_vad(text)
 
-        # 3. Image embedding
+        # Image embedding
         if has_image:
             pil   = Image.open(io.BytesIO(base64.b64decode(img_b64))).convert("RGB")
             img_t = prep(pil).unsqueeze(0).to(device)
@@ -1583,7 +1574,7 @@ def predict():
             image_emb   = torch.zeros(1024)
             vad_image_d = {"V": 0.5, "A": 0.5, "D": 0.5}
 
-        # 4. Forward pass
+        # forward pass
         em    = MODELS["emotion_model"]
         h_t   = text_emb.unsqueeze(0).to(device)
         h_i   = image_emb.unsqueeze(0).to(device)
@@ -1601,7 +1592,7 @@ def predict():
                 vad_image=vad_i,
             )
 
-        # 5. Sigmoid
+        # Sigmoid
         raw_logit = float(logits[0, 0].item())
         prior_correction = float(np.log(4832.0 / 5994.0))   # -0.215 based on dataset balance
         corrected_logit  = raw_logit + prior_correction
@@ -1618,17 +1609,16 @@ def predict():
         mismatch_mag = float(vmm.norm().item())
         mixed_score  = float(intermediates.get("mixed_score", torch.zeros(1,1))[0,0].item())
 
-        # 6. Anomaly
-        # 6. Anomaly
+        # Anomaly
         # CRITICAL: use z_aug not z_fused
         # Anomaly models were trained on z_aug from prepare_clustering_data.py
         # z_fused is a different tensor — causes distribution mismatch
         if "z_aug" in intermediates:
             z_for_anomaly = intermediates["z_aug"][0].detach().cpu().numpy()
-            print(f"[DEBUG] anomaly input: z_aug ✅")
+            print(f"[DEBUG] anomaly input: z_aug ")
         else:
             z_for_anomaly = intermediates["z_fused"][0].detach().cpu().numpy()
-            print(f"[DEBUG] anomaly input: z_fused ⚠️  "
+            print(f"[DEBUG] anomaly input: z_fused  "
                   f"(z_aug not found — check model intermediates)")
 
         v_mismatch_np = intermediates["v_mismatch"][0].detach().cpu().numpy()
@@ -1643,7 +1633,7 @@ def predict():
 
         print(f"[DEBUG] anomaly={anomaly_score:.4f} level={anomaly_level} n={n_methods}")
 
-        # ── GDELT Layer 1: Event Verification ────────────────────────────────
+        # GDELT Layer 1: Event Verification 
         # Query GDELT BEFORE computing final score so its thresholds can
         # influence how the anomaly and fake_prob are weighted.
         # This runs in ~0.5–2s and is cached for 10 minutes.
@@ -1655,8 +1645,8 @@ def predict():
               f"threshold_adj={gdelt_threshold_adj:+.2f} "
               f"anomaly_cap={gdelt_anomaly_cap:.2f}")
 
-        # 7. Base combined score (unchanged from original)
-         # 7. Base combined score
+        #  Base combined score (unchanged from original)
+         # ase combined score
         # Text-only: reduce anomaly weight — less reliable without image
         dA_vad = abs(vad_text_d["A"] - vad_image_d["A"])
         dV_vad = abs(vad_text_d["V"] - vad_image_d["V"])
@@ -1671,8 +1661,8 @@ def predict():
             print(f"[DEBUG] clip_text_image_sim={clip_text_image_sim:.3f}")
             # Adjust fake_prob based on how well image matches text
             # Baseline 0.20 = typical CLIP sim for a matching news image
-            # Low sim (wrong image) → raise fake_prob
-            # High sim (matching image) → lower fake_prob
+            # Low sim (wrong image) - raise fake_prob
+            # High sim (matching image) - lower fake_prob
             clip_correction = (0.20 - clip_text_image_sim) * 0.35
             fake_prob = float(np.clip(fake_prob + clip_correction, 0.05, 0.95))
             print(f"[DEBUG] clip_correction={clip_correction:+.3f}  "
@@ -1696,7 +1686,7 @@ def predict():
             llm_entity_ok, llm_entity_reason = check_entity_consistency_llm(text, clip_desc, img_feat_norm=img_feat_norm)
             print(f"[entity] entity_ok={llm_entity_ok} reason={llm_entity_reason[:80]}")
 
-        # ── Final verdict logic ────────────────────────────────────────────────
+        # inal verdict logic 
         semantic_verified = (
             llm_entity_ok
             and llm_entity_reason != "skipped"
@@ -1721,7 +1711,7 @@ def predict():
             print(f"[DEBUG] CLIP content mismatch → combined={combined:.4f}")
 
         elif semantic_verified:
-            # ── Cap fake_prob when multimodal evidence confirms authenticity ──
+            # Cap fake_prob when multimodal evidence confirms authenticity 
             #
             # The neural network returns fake_prob≈1.0 for any high-arousal
             # breaking news post (explosion, terror, Paris) because the training
@@ -1730,10 +1720,10 @@ def predict():
             # bias must be overridden. We cap fake_prob itself, not just anomaly.
             #
             # Tiers based on how much independent confirmation we have:
-            #   GDELT verified           → cap fake_prob at 0.50
-            #   GDELT partially verified → cap fake_prob at 0.55
-            #   GDELT timed out/unchecked→ cap fake_prob at 0.60
-            #   No GDELT at all          → cap fake_prob at 0.65
+            #   GDELT verified           -cap fake_prob at 0.50
+            #   GDELT partially verified - cap fake_prob at 0.55
+            #   GDELT timed out/unchecked- cap fake_prob at 0.60
+            #   No GDELT at all          - cap fake_prob at 0.65
             if gdelt_result["verdict"] == "verified":
                 effective_fake_prob = min(fake_prob, 0.50)
                 capped_anomaly = min(anomaly_score, gdelt_anomaly_cap)
@@ -1757,7 +1747,7 @@ def predict():
             combined = 0.85 * fake_prob + 0.15 * anomaly_score
             print(f"[DEBUG] VAD consistent → combined={combined:.4f}")
 
-        # ── Threshold with GDELT adjustment ──────────────────────────────────
+        #Threshold with GDELT adjustment 
         # Base threshold: 0.60 if semantically verified, 0.52 otherwise
         # GDELT adjustment: +0.15 if verified (harder to call fake),
         #                   -0.10 if unverified (easier to call fake)
@@ -1807,7 +1797,7 @@ def predict():
             "semantic_consistency": round(semantic_sim, 4),
             "clip_text_image_sim":  round(clip_text_image_sim, 4),
             "semantic_verified":    semantic_verified,
-            # ── NEW: GDELT verification results exposed in response ───────────
+
             "gdelt_verification": {
                 "verdict":       gdelt_result["verdict"],
                 "confidence":    gdelt_result["confidence"],
@@ -1823,7 +1813,7 @@ def predict():
                 "sentence_encoder": True,
                 "emotion_model":    True,
                 "anomaly_ensemble": True,
-                "gdelt_layer1":     gdelt_result["gdelt_checked"],   # NEW
+                "gdelt_layer1":     gdelt_result["gdelt_checked"],   
                 "gnn":              False,
                 "meta_features":    False,
             }
@@ -2021,11 +2011,11 @@ def ai_describe():
         with urllib.request.urlopen(req, timeout=120) as resp:
             result = json_lib.loads(resp.read().decode("utf-8"))
             text   = result.get("response", "").strip()
-            print(f"[ai_describe] ✅ Ollama: {text[:80]}...")
+            print(f"[ai_describe]  Ollama: {text[:80]}...")
             return jsonify({"text": text or None})
 
     except Exception as e:
-        print(f"[ai_describe] ❌ Ollama failed: {e}")
+        print(f"[ai_describe]  Ollama failed: {e}")
         return jsonify({"text": None, "error": str(e)}), 200
 
 
