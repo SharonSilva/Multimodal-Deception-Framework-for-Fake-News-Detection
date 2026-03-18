@@ -14,7 +14,7 @@ Pillow>=10.0
 
 numpy==1.26.4
 pandas>=2.0
-scikit-learn>=1.4
+scikit-learn==1.8.0
 scipy>=1.10
 
 emoji==2.2.0

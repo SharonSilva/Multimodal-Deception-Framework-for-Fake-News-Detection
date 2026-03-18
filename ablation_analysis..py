@@ -21,9 +21,6 @@ SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 
-# ============================================================================
-# LOAD DATA (same as your evaluation script)
-# ============================================================================
 
 print("Loading data...")
 
@@ -136,9 +133,7 @@ test_loader = make_loader(test_idx, shuffle=False)
 
 print(f"Data loaded: {len(train_idx)} train, {len(val_idx)} val, {len(test_idx)} test")
 
-# ============================================================================
-# BASELINE MODELS
-# ============================================================================
+#Baseline models
 
 class TextOnlyBaseline(nn.Module):
     def __init__(self, d_text=128):
@@ -321,9 +316,7 @@ class ProjectionAttentionMismatch(nn.Module):
         combined = torch.cat([z_text_attn, z_image_attn, z_meta, v_mismatch], dim=1)
         return self.classifier(combined)
 
-# ============================================================================
-# EVALUATION
-# ============================================================================
+#Evaluation
 
 def evaluate_model(model, test_loader, device):
     model.eval()
@@ -354,9 +347,7 @@ def evaluate_model(model, test_loader, device):
     
     return {'accuracy': acc, 'f1': f1, 'auc': auc}
 
-# ============================================================================
-# RUN ABLATION
-# ============================================================================
+ #Run ablation
 
 def run_ablation(train_loader, val_loader, test_loader, device=DEVICE):
     
@@ -422,9 +413,9 @@ def run_ablation(train_loader, val_loader, test_loader, device=DEVICE):
     
     return results
 
-# ============================================================================
-# PRINT SUMMARY
-# ============================================================================
+
+# print summary
+
 
 def print_summary(results):
     print("\n" + "="*100)
@@ -472,9 +463,6 @@ def print_summary(results):
     
     print("\n" + "="*100)
 
-# ============================================================================
-# MAIN
-# ============================================================================
 
 if __name__ == "__main__":
     print("\nRunning comprehensive ablation study...\n")

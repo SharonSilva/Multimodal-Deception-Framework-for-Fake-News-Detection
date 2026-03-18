@@ -16,7 +16,7 @@ from rough_work import EmotionAwareFusionLayer, EmotionAwareFakeNewsDetector
 # DEVICE SETUP
 # ============================================================================
 device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
-print(f"\n🚀 Using device: {device.type.upper()}")
+print(f"\n Using device: {device.type.upper()}")
 
 if device.type == "cuda":
     print(f"  -> GPU: {torch.cuda.get_device_name(0)}")
@@ -44,7 +44,7 @@ class FakeNewsVADDataset(Dataset):
 
         # Convert labels to numeric
         if self.df['label'].dtype == object:
-            print("⚠️  Converting object labels to numeric (0/1)...")
+            print("  Converting object labels to numeric (0/1)...")
             self.df['label'] = self.df['label'].map({'fake': 1, 'real': 0})
         
         self.df['label'] = pd.to_numeric(self.df['label'], errors='coerce').fillna(0)
@@ -89,7 +89,7 @@ def index_vad_data(vad_data, indices):
     elif isinstance(indices, np.ndarray):
         indices = indices.tolist()
     
-    print(f"\n🔍 Indexing VAD data for {len(indices)} samples...")
+    print(f"\n Indexing VAD data for {len(indices)} samples...")
     
     for key, value in vad_data.items():
         if isinstance(value, list):
@@ -118,7 +118,7 @@ def index_vad_data(vad_data, indices):
 def prepare_vad_data_with_validation(df):
     """Prepare VAD data with automatic dimension adjustment."""
     N = len(df)
-    print(f"\n📊 Preparing VAD data for {N} samples...")
+    print(f"\nPreparing VAD data for {N} samples...")
 
     # Text VAD
     if all(col in df.columns for col in ['text_valence', 'text_arousal', 'text_dominance']):
@@ -126,16 +126,16 @@ def prepare_vad_data_with_validation(df):
             df[['text_valence', 'text_arousal', 'text_dominance']].values,
             dtype=torch.float32
         )
-        print(f"  ✅ Text VAD: {vad_text.shape}")
+        print(f"   Text VAD: {vad_text.shape}")
     else:
-        print("  ⚠️  Text VAD columns not found, using random values")
+        print("   Text VAD columns not found, using random values")
         vad_text = torch.rand(N, 3)
 
     # Image VAD
     vad_image = None
     if os.path.exists("Dataset/twitter/image_vad.pt"):
         vad_image = torch.load("Dataset/twitter/image_vad.pt").float()
-        print(f"  ✅ Image VAD loaded: {vad_image.shape}")
+        print(f"  Image VAD loaded: {vad_image.shape}")
     elif os.path.exists("Dataset/twitter/scene_emotions_vad_proj.csv"):
         df_scene = pd.read_csv("Dataset/twitter/scene_emotions_vad_proj.csv")
         if all(col in df_scene.columns for col in ['valence', 'arousal', 'dominance']):
@@ -143,35 +143,35 @@ def prepare_vad_data_with_validation(df):
                 df_scene[['valence', 'arousal', 'dominance']].values,
                 dtype=torch.float32
             )
-            print(f"  ✅ Scene VAD: {vad_image.shape}")
+            print(f"  Scene VAD: {vad_image.shape}")
     
     if vad_image is None:
-        print("  ⚠️  Image VAD not found, using random values")
+        print("    Image VAD not found, using random values")
         vad_image = torch.rand(N, 3)
 
     # Adjust image VAD size
     if vad_image.shape[0] != N:
-        print(f"  ⚠️  Image VAD size mismatch: {vad_image.shape[0]} vs {N}, adjusting...")
+        print(f"    Image VAD size mismatch: {vad_image.shape[0]} vs {N}, adjusting...")
         if vad_image.shape[0] > N:
             vad_image = vad_image[:N]
         else:
             repeat_factor = int(np.ceil(N / vad_image.shape[0]))
             vad_image = vad_image.repeat(repeat_factor, 1)[:N]
-    print(f"  ✅ Image VAD adjusted: {vad_image.shape}")
+    print(f"   Image VAD adjusted: {vad_image.shape}")
 
     # Affective metadata
     if os.path.exists("Dataset/affectnet/affective_embedding.npy"):
         affective_meta = torch.tensor(np.load("Dataset/affectnet/affective_embedding.npy"), dtype=torch.float32)
         if affective_meta.shape[0] != N:
-            print(f"  ⚠️  Affective embeddings mismatch: {affective_meta.shape[0]} vs {N}, adjusting...")
+            print(f"    Affective embeddings mismatch: {affective_meta.shape[0]} vs {N}, adjusting...")
             if affective_meta.shape[0] > N:
                 affective_meta = affective_meta[:N]
             else:
                 repeat_factor = int(np.ceil(N / affective_meta.shape[0]))
                 affective_meta = affective_meta.repeat(repeat_factor, 1)[:N]
-        print(f"  ✅ Affective meta adjusted: {affective_meta.shape}")
+        print(f"   Affective meta adjusted: {affective_meta.shape}")
     else:
-        print("  ⚠️  Affective embeddings not found, using random values")
+        print("    Affective embeddings not found, using random values")
         affective_meta = torch.randn(N, 128)
 
     vad_data = {
@@ -180,7 +180,7 @@ def prepare_vad_data_with_validation(df):
         'affective_meta': affective_meta
     }
 
-    print(f"\n✅ VAD data prepared successfully for {N} samples")
+    print(f"\n VAD data prepared successfully for {N} samples")
     return vad_data
 
 # ============================================================================
@@ -189,7 +189,7 @@ def prepare_vad_data_with_validation(df):
 def train_epoch(model, dataloader, optimizer, criterion, device):
     model.train()
     total_loss, correct, total = 0, 0, 0
-    progress = tqdm(dataloader, desc="🧠 Training", leave=False)
+    progress = tqdm(dataloader, desc=" Training", leave=False)
 
     for batch in progress:
         h_text = batch['text_features'].to(device)
@@ -262,11 +262,11 @@ def validate(model, dataloader, criterion, device):
 # ============================================================================
 def main():
     print("\n" + "="*70)
-    print("🎯 TRAINING EMOTION-AWARE FAKE NEWS DETECTOR")
+    print(" TRAINING EMOTION-AWARE FAKE NEWS DETECTOR")
     print("="*70)
 
     # Load dataset
-    print("\n📊 Loading dataset...")
+    print("\n Loading dataset...")
     df = pd.read_pickle("Dataset/twitter/df_with_text_emotions_vad.pkl")
     df = df.iloc[:11844].reset_index(drop=True)
     print(f"  Loaded {len(df)} samples")
@@ -274,18 +274,18 @@ def main():
     # Prepare VAD data
     vad_data = prepare_vad_data_with_validation(df)
     torch.save(vad_data, "Dataset/twitter/prepared_vad_data_validated.pt")
-    print("\n💾 Saved validated VAD data")
+    print("\n Saved validated VAD data")
 
     # Load features with dimension fixing
-    print("\n📊 Loading feature embeddings...")
+    print("\n Loading feature embeddings...")
     
     # Text features
     if 'semantic_vector' in df.columns:
         text_features = torch.tensor(np.stack(df['semantic_vector'].values), dtype=torch.float32)
     else:
-        print("  ⚠️  Using random text features")
+        print("    Using random text features")
         text_features = torch.randn(len(df), 128)
-    print(f"  ✅ Text features: {text_features.shape}")
+    print(f"  Text features: {text_features.shape}")
     
     # Image features
     if os.path.exists("Dataset/twitter/image_embeddings_cache.pkl"):
@@ -296,9 +296,9 @@ def main():
         if not torch.is_tensor(image_features):
             image_features = torch.tensor(image_features, dtype=torch.float32)
     else:
-        print("  ⚠️  Using random image features")
+        print("    Using random image features")
         image_features = torch.randn(len(df), 1024)
-    print(f"  ✅ Image features: {image_features.shape}")
+    print(f"   Image features: {image_features.shape}")
     
     # Metadata features - FIX DIMENSIONS
     if os.path.exists("metadata_user_sequence_embeddings.pt"):
@@ -306,14 +306,14 @@ def main():
         # FIX: Squeeze middle dimension if (N, 1, 128)
         if metadata_features.ndim == 3 and metadata_features.shape[1] == 1:
             metadata_features = metadata_features.squeeze(1)
-            print(f"  🔧 Squeezed metadata from 3D to 2D")
+            print(f"  Squeezed metadata from 3D to 2D")
     else:
-        print("  ⚠️  Using random metadata features")
+        print("    Using random metadata features")
         metadata_features = torch.randn(len(df), 128)
-    print(f"  ✅ Metadata features: {metadata_features.shape}")
+    print(f"   Metadata features: {metadata_features.shape}")
 
     # Split train/val
-    print("\n✂️  Splitting train/validation...")
+    print("\n  Splitting train/validation...")
     train_idx, val_idx = train_test_split(
         range(len(df)), 
         test_size=0.2, 
@@ -343,12 +343,12 @@ def main():
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=0)
     val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False, num_workers=0)
     
-    print(f"✅ Train: {len(train_dataset)} | Val: {len(val_dataset)}")
+    print(f"Train: {len(train_dataset)} | Val: {len(val_dataset)}")
 
     # Model
-    print("\n🔧 Initializing model...")
+    print("\n Initializing model...")
     model = EmotionAwareFakeNewsDetector().to(device)
-    print(f"✅ Model initialized ({sum(p.numel() for p in model.parameters()):,} parameters)")
+    print(f" Model initialized ({sum(p.numel() for p in model.parameters()):,} parameters)")
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=0.01)
     criterion = nn.BCEWithLogitsLoss()
@@ -356,26 +356,26 @@ def main():
 
     best_val_acc = 0.0
     num_epochs = 20
-    print("\n🚀 Starting training...\n")
+    print("\n Starting training...\n")
 
     for epoch in range(num_epochs):
-        print(f"\n📘 Epoch {epoch+1}/{num_epochs}")
+        print(f"\n Epoch {epoch+1}/{num_epochs}")
         train_loss, train_acc = train_epoch(model, train_loader, optimizer, criterion, device)
         val_loss, val_acc = validate(model, val_loader, criterion, device)
         scheduler.step(val_loss)
         
-        print(f"  🔹 Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f}")
-        print(f"  🔹 Val   Loss: {val_loss:.4f} | Val   Acc: {val_acc:.4f}")
-        print(f"  🔹 Current LR: {optimizer.param_groups[0]['lr']:.6f}")
+        print(f"   Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f}")
+        print(f"   Val   Loss: {val_loss:.4f} | Val   Acc: {val_acc:.4f}")
+        print(f"   Current LR: {optimizer.param_groups[0]['lr']:.6f}")
 
         if val_acc > best_val_acc:
             best_val_acc = val_acc
             os.makedirs("checkpoints", exist_ok=True)
             torch.save(model.state_dict(), "checkpoints/best_emotion_aware_detector.pth")
-            print(f"  ✅ Saved new best model (Val Acc: {val_acc:.4f})")
+            print(f"  Saved new best model (Val Acc: {val_acc:.4f})")
 
     print("\n" + "="*70)
-    print(f"🏁 TRAINING COMPLETE — Best Val Acc: {best_val_acc:.4f}")
+    print(f" TRAINING COMPLETE — Best Val Acc: {best_val_acc:.4f}")
     print("="*70)
 
 if __name__ == "__main__":

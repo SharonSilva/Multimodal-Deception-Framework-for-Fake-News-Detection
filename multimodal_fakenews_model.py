@@ -36,25 +36,14 @@ from sklearn.metrics import silhouette_score
 import umap
 from transformers import BertTokenizerFast
 
-#multimodal_fakenews_model.py
-# -------------------------
-# Device
-# -------------------------
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# -------------------------
-# Load SpaCy
-# -------------------------
 nlp = spacy.load("en_core_web_sm")
 
-# -------------------------
-# Load Dataset
-# -------------------------
+
 df = pd.read_csv("Dataset/twitter/df_train_translated.csv")
 
-# -------------------------
-# Text preprocessing
-# -------------------------
 def extract_hashtags(text):
     return re.findall(r'#\w+', str(text))
 
@@ -505,7 +494,7 @@ class EmbeddingPreprocessor:
         return embeddings / norms
     
     def fit_pca_per_modality(self, text_emb, image_emb, meta_emb):
-        print("\n📉 Step 3: Dimensionality reduction per modality (PCA)")
+        print("\nStep 3: Dimensionality reduction per modality (PCA)")
 
         # Fix metadata shape if it’s 3D (e.g., [N, 1, 128])
         if meta_emb.ndim == 3:
@@ -531,13 +520,12 @@ class EmbeddingPreprocessor:
     def align_embeddings_cca(self, text_reduced, image_reduced):
         """Step 4: CCA removed — correlation was 0.063, adding noise not signal.
         Pass PCA-reduced embeddings directly as separate streams."""
-        print("\n🔗 Step 4: CCA skipped (low correlation — passing through directly)")
         print(f"  Text: {text_reduced.shape}, Image: {image_reduced.shape}")
         return text_reduced, image_reduced
         
     def fuse_embeddings(self, text_aligned, image_aligned, meta_reduced):
         """Step 5: Fuse embeddings"""
-        print(f"\n🔀 Step 5: Fuse embeddings (method: {self.fusion_method})")
+        print(f"\n Step 5: Fuse embeddings (method: {self.fusion_method})")
         
         if self.fusion_method == 'concatenate':
             fused = np.concatenate([text_aligned, image_aligned, meta_reduced], axis=1)
@@ -650,7 +638,7 @@ class EmbeddingPreprocessor:
         print("="*70)
         
         # Step 2: Normalize
-        print("\n🔄 Step 2: L2 Normalization")
+        print("\n Step 2: L2 Normalization")
         text_norm = self.l2_normalize(text_emb)
         image_norm = self.l2_normalize(image_emb)
         meta_norm = self.l2_normalize(meta_emb)
