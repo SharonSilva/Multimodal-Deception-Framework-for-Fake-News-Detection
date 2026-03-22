@@ -11,15 +11,10 @@ import matplotlib.pyplot as plt
 import json
 from tqdm import tqdm
 
-# =====================================================================
-# DEVICE
-# =====================================================================
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
-# =====================================================================
-# LOAD DATA
-# =====================================================================
+
 print("Loading data...")
 
 text_embeddings = torch.load("Dataset/twitter/text_aligned.pt").float()          # [N, 64]
@@ -36,9 +31,9 @@ if metadata_embeddings.ndim == 3 and metadata_embeddings.shape[1] == 1:
 print(f"Data loaded: {len(labels)} samples")
 print(f"Label distribution: Real (0)={sum(labels==0).item()}, Fake (1)={sum(labels==1).item()}")
 
-# =====================================================================
+
 # CREATE SPLITS
-# =====================================================================
+
 indices = np.arange(len(labels))
 train_idx, temp_idx = train_test_split(indices, test_size=0.3, random_state=42, stratify=labels)
 val_idx, test_idx = train_test_split(temp_idx, test_size=0.5, random_state=42, stratify=labels[temp_idx])
@@ -67,9 +62,9 @@ train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-# =====================================================================
+
 # LOSS FUNCTION
-# =====================================================================
+
 class SimpleFocalLoss(nn.Module):
     def __init__(self, alpha=0.25, gamma=2.0):
         super().__init__()
@@ -82,9 +77,9 @@ class SimpleFocalLoss(nn.Module):
         focal_loss = self.alpha * (1 - pt) ** self.gamma * bce_loss
         return focal_loss.mean()
 
-# =====================================================================
+
 # AUGMENTATION (NO GRAD)
-# =====================================================================
+
 class EmbeddingAugmentation:
     def __init__(self, noise_std=0.02, dropout_p=0.15):
         self.noise_std = noise_std
@@ -111,9 +106,8 @@ class EmbeddingAugmentation:
 
         return text_emb, image_emb, meta_emb
 
-# =====================================================================
 # MODEL
-# =====================================================================
+
 from multimodal_fakenews_model import AdaptiveMultimodalFakeNewsDetector
 
 model = AdaptiveMultimodalFakeNewsDetector(
@@ -125,9 +119,9 @@ model = AdaptiveMultimodalFakeNewsDetector(
 
 print(f"Model initialized with {sum(p.numel() for p in model.parameters()):,} parameters")
 
-# =====================================================================
+
 # TRAINING CONFIG
-# =====================================================================
+
 num_epochs = 30
 learning_rate = 3e-4
 warmup_epochs = 3
@@ -148,9 +142,9 @@ def get_lr_multiplier(step):
 
 scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=get_lr_multiplier)
 
-# =====================================================================
+
 # TRAINING LOOP
-# =====================================================================
+
 history = {'train': [], 'val': []}
 best_val_f1 = 0
 patience_counter = 0
@@ -159,7 +153,7 @@ patience = 7
 print("\nStarting training...")
 
 for epoch in range(num_epochs):
-    # ===== TRAIN =====
+    # Train
     model.train()
     train_loss = 0
     train_preds, train_labels_list = [], []
@@ -189,7 +183,7 @@ for epoch in range(num_epochs):
     train_acc = accuracy_score(train_labels_array, train_preds_binary)
     train_loss_avg = train_loss / len(train_loader)
 
-    # ===== VALIDATION =====
+    # Validation
     model.eval()
     val_loss = 0
     val_preds, val_labels_list = [], []
@@ -212,7 +206,7 @@ for epoch in range(num_epochs):
     val_recall = recall_score(val_labels_array, val_preds_binary)
     val_loss_avg = val_loss / len(val_loader)
 
-    # ===== LOGGING =====
+    # Logging
     print(f"\nEpoch {epoch+1}/{num_epochs}")
     print(f"Train Loss={train_loss_avg:.4f}, F1={train_f1:.4f}, Acc={train_acc:.4f}")
     print(f"Val   Loss={val_loss_avg:.4f}, F1={val_f1:.4f}, Acc={val_acc:.4f}, P={val_precision:.4f}, R={val_recall:.4f}")
@@ -221,21 +215,21 @@ for epoch in range(num_epochs):
     history['train'].append({'total_loss': train_loss_avg, 'f1': train_f1, 'acc': train_acc})
     history['val'].append({'total_loss': val_loss_avg, 'f1': val_f1, 'acc': val_acc})
 
-    # ===== CHECKPOINT =====
+    # Checkpoint
     if val_f1 > best_val_f1:
         best_val_f1 = val_f1
         torch.save(model.state_dict(), 'best_model_safe.pt')
         patience_counter = 0
-        print(f"  ✓ New best F1: {best_val_f1:.4f}")
+        print(f"   New best F1: {best_val_f1:.4f}")
     else:
         patience_counter += 1
         if patience_counter >= patience:
             print(f"\nEarly stopping at epoch {epoch+1}")
             break
 
-# =====================================================================
+
 # TEST EVALUATION
-# =====================================================================
+
 print("\nTesting best model...")
 model.load_state_dict(torch.load('best_model_safe.pt'))
 model.eval()
@@ -278,5 +272,5 @@ results = {
 with open('results_safe.json', 'w') as f:
     json.dump(results, f, indent=2)
 
-print("✅ Training complete! Model saved to 'best_model_safe.pt'")
-print("✅ Results saved to 'results_safe.json'")
+print(" Training complete! Model saved to 'best_model_safe.pt'")
+print(" Results saved to 'results_safe.json'")

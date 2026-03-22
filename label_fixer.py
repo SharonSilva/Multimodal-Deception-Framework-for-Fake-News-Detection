@@ -1,19 +1,8 @@
-"""
-LABEL FIXER - Run this first to fix your labels
-================================================
-
-Save this as: label_fixer.py
-Then run: python label_fixer.py
-"""
-
 import pandas as pd
 import numpy as np
 import torch
 import os
 
-# ==============================================================================
-# STEP 1: INSPECT YOUR DATASET
-# ==============================================================================
 
 print("="*80)
 print("STEP 1: INSPECTING YOUR DATASET")
@@ -21,9 +10,9 @@ print("="*80)
 
 try:
     df = pd.read_pickle("Dataset/twitter/df_with_contradiction_scores.pkl")
-    print(f"✅ Loaded dataset: {df.shape[0]} rows, {df.shape[1]} columns")
+    print(f" Loaded dataset: {df.shape[0]} rows, {df.shape[1]} columns")
 except FileNotFoundError:
-    print("❌ ERROR: Could not find Dataset/twitter/df_with_contradiction_scores.pkl")
+    print(" ERROR: Could not find Dataset/twitter/df_with_contradiction_scores.pkl")
     print("\nAvailable pickle files:")
     for f in os.listdir("Dataset/twitter/"):
         if f.endswith('.pkl'):
@@ -32,16 +21,15 @@ except FileNotFoundError:
 
 print(f"\nAll columns: {df.columns.tolist()}")
 
-# Check what's in the 'label' column
 if 'label' in df.columns:
-    print("\n✅ Found 'label' column!")
+    print("\n Found 'label' column!")
     print(f"Label dtype: {df['label'].dtype}")
     print(f"Unique values: {df['label'].unique()}")
     print(f"\nValue counts:")
     print(df['label'].value_counts())
     print(f"\nFirst 20 labels: {df['label'].head(20).tolist()}")
 else:
-    print("\n❌ NO 'label' column found!")
+    print("\n NO 'label' column found!")
     print("\nSearching for columns that might contain labels...")
     
     potential_cols = [col for col in df.columns if any(keyword in col.lower() 
@@ -55,11 +43,11 @@ else:
             print(f"  Sample values: {df[col].head(10).tolist()}")
             print(f"  Unique values: {df[col].nunique()}")
     else:
-        print("❌ No obvious label column found")
+        print(" No obvious label column found")
 
-# ==============================================================================
+
 # STEP 2: ATTEMPT TO FIX LABELS
-# ==============================================================================
+
 
 print("\n" + "="*80)
 print("STEP 2: ATTEMPTING TO FIX LABELS")
@@ -75,7 +63,7 @@ if 'label' in df.columns:
         # Check if it's already numeric
         if pd.api.types.is_numeric_dtype(df['label']):
             df['label'] = df['label'].astype(int)
-            print(f"✅ Labels are already numeric!")
+            print(f" Labels are already numeric!")
             label_fixed = True
         else:
             # Try mapping text labels
@@ -98,14 +86,14 @@ if 'label' in df.columns:
                 print(f"  Unmapped values: {unmapped}")
             else:
                 df['label'] = df['label'].astype(int)
-                print(f"  ✅ Successfully mapped text labels to 0/1!")
+                print(f"   Successfully mapped text labels to 0/1!")
                 label_fixed = True
                 
     except Exception as e:
-        print(f"  ❌ Conversion failed: {e}")
+        print(f"   Conversion failed: {e}")
 
 if not label_fixed:
-    print("❌ ERROR: No real ground-truth labels found.")
+    print(" ERROR: No real ground-truth labels found.")
     print("You CANNOT train a scientific model without real labels.")
     print("Please use a labeled dataset like:")
     print("- FakeNewsNet")
@@ -113,9 +101,8 @@ if not label_fixed:
     print("- PolitiFact / GossipCop")
     exit(1)
 
-# ==============================================================================
 # STEP 3: VALIDATE AND SAVE
-# ==============================================================================
+
 
 print("\n" + "="*80)
 print("STEP 3: VALIDATING AND SAVING")
@@ -126,7 +113,7 @@ if label_fixed and 'label' in df.columns:
     original_len = len(df)
     df = df.dropna(subset=['label'])
     if len(df) < original_len:
-        print(f"⚠️  Dropped {original_len - len(df)} rows with NaN labels")
+        print(f"  Dropped {original_len - len(df)} rows with NaN labels")
     
     # Ensure integer type
     df['label'] = df['label'].astype(int)
@@ -136,7 +123,7 @@ if label_fixed and 'label' in df.columns:
     print(f"\nUnique label values: {sorted(unique_labels)}")
     
     if set(unique_labels) == {0, 1}:
-        print("✅ Labels are in correct binary format (0 = Real, 1 = Fake)")
+        print(" Labels are in correct binary format (0 = Real, 1 = Fake)")
         
         # Show distribution
         print(f"\nFinal label distribution:")
@@ -153,41 +140,30 @@ if label_fixed and 'label' in df.columns:
         # Save corrected dataset
         output_path = "Dataset/twitter/df_with_corrected_labels.pkl"
         df.to_pickle(output_path)
-        print(f"\n✅ Saved corrected dataset to: {output_path}")
+        print(f"\n Saved corrected dataset to: {output_path}")
         
         # Save labels as tensor
         labels_tensor = torch.tensor(df['label'].values, dtype=torch.long)
         labels_path = "Dataset/twitter/labels.pt"
         torch.save(labels_tensor, labels_path)
-        print(f"✅ Saved label tensor to: {labels_path}")
+        print(f" Saved label tensor to: {labels_path}")
         
         print("\n" + "="*80)
-        print("✅✅✅ SUCCESS! LABELS ARE READY ✅✅✅")
+        print(" SUCCESS! LABELS ARE READY ")
         print("="*80)
         
-        print("\n📋 NEXT STEPS:")
+        print("\n NEXT STEPS:")
         print("1. Run diagnostics:")
         print("   python root_cause_analyzer.py")
         print("\n2. If diagnostics pass, start training:")
         print("   python fixed_training.py")
         
-        print("\n⚠️  IMPORTANT: Update your training script to load labels:")
+        print("\n  IMPORTANT: Update your training script to load labels:")
         print("   labels = torch.load('Dataset/twitter/labels.pt').float()")
         
     else:
-        print(f"❌ ERROR: Expected labels to be 0 and 1, found: {unique_labels}")
+        print(f" ERROR: Expected labels to be 0 and 1, found: {unique_labels}")
         print("Manual intervention required!")
 else:
-    print("\n❌ FAILED TO CREATE VALID LABELS")
-    print("\nYou need to manually add labels to your dataset.")
-    print("\nOptions:")
-    print("1. If you have a separate label file, merge it:")
-    print("   labels_df = pd.read_csv('your_labels.csv')")
-    print("   df = df.merge(labels_df, on='post_id')")
-    print("\n2. If labels are in post metadata:")
-    print("   df['label'] = df['some_column'].map({'real': 0, 'fake': 1})")
-    print("\n3. Use a public labeled dataset:")
-    print("   - FakeNewsNet: https://github.com/KaiDMML/FakeNewsNet")
-    print("   - LIAR dataset: https://www.cs.ucsb.edu/~william/data/liar_dataset.zip")
-
-print("\n" + "="*80)
+    print("\n FAILED TO CREATE VALID LABELS")
+   

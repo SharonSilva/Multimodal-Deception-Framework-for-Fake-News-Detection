@@ -5,10 +5,8 @@ from PIL import Image
 import pandas as pd
 from tqdm import tqdm
 import torch.nn as nn
-# Image_scene_vector.py
-# ---------------------
-# Settings
-# ---------------------
+
+
 IMAGE_FOLDER = "Dataset/twitter/images_train"
 OUTPUT_CSV = "Dataset/twitter/scene_emotions_vad_proj.csv"
 DEVICE = "mps" if torch.backends.mps.is_available() else "cpu"
@@ -31,19 +29,15 @@ EMOTION_VAD = {
     "tense":         [0.3, 0.8, 0.6]
 }
 
-# ---------------------
-# Load CLIP
-# ---------------------
+
 model, preprocess = clip.load("ViT-B/32", device=DEVICE)
 model.eval()
 print(f"⚡ Using device: {DEVICE}")
 print(" CLIP model loaded")
 
-# ---------------------
-# VAD projector
-# ---------------------
+
 class VADProjector(nn.Module):
-    def __init__(self, input_dim=3, hidden_dim=128, output_dim=512):  # align with CLIP feature dim
+    def __init__(self, input_dim=3, hidden_dim=128, output_dim=512): 
         super().__init__()
         self.projector = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -57,9 +51,7 @@ class VADProjector(nn.Module):
 
 vad_projector = VADProjector(input_dim=3, hidden_dim=128, output_dim=512).to(DEVICE)
 
-# ---------------------
-# Functions
-# ---------------------
+
 def extract_scene_emotion_clip(img_path, emotion_labels=EMOTIONS):
     try:
         image = preprocess(Image.open(img_path)).unsqueeze(0).to(DEVICE)
@@ -88,9 +80,7 @@ def probs_to_vad(emotion_probs, vad_mapping=EMOTION_VAD):
     dominance = sum(emotion_probs[emo] * vad_mapping[emo][2] for emo in emotion_probs)
     return torch.tensor([valence, arousal, dominance], dtype=torch.float32).to(DEVICE)
 
-# ---------------------
-# Prepare training data for projector
-# ---------------------
+
 vad_tensors = []
 clip_features = []
 
@@ -104,16 +94,13 @@ for img_file in tqdm(os.listdir(IMAGE_FOLDER), desc="Preparing training data"):
     vad_tensors.append(vad_scores)
     clip_features.append(torch.tensor(embedding, dtype=torch.float32).to(DEVICE))
 
-# ---------------------
-# Train VAD projector against CLIP embeddings
-# ---------------------
 optimizer = torch.optim.Adam(vad_projector.parameters(), lr=1e-3, weight_decay=1e-5)
 loss_fn = nn.MSELoss()
 vad_projector.train()
 epochs = 10
 
-vad_batch = torch.stack(vad_tensors)        # [N, 3]
-clip_batch = torch.stack(clip_features)     # [N, 512]
+vad_batch = torch.stack(vad_tensors)       
+clip_batch = torch.stack(clip_features)     
 
 from torch.utils.data import TensorDataset, DataLoader
 dataset = TensorDataset(vad_batch, clip_batch)
@@ -132,11 +119,9 @@ for epoch in range(epochs):
 
 torch.save(vad_projector.state_dict(), "vad_projector.pth")
 vad_projector.eval()
-print("✅ VAD projector trained and saved")
+print(" VAD projector trained and saved")
 
-# ---------------------
-# Generate final embeddings
-# ---------------------
+
 results = []
 
 for img_file in tqdm(os.listdir(IMAGE_FOLDER), desc="Generating final VAD embeddings"):
@@ -161,12 +146,10 @@ for img_file in tqdm(os.listdir(IMAGE_FOLDER), desc="Generating final VAD embedd
     }
     results.append(row)
 
-# ---------------------
-# Save CSV
-# ---------------------
+
 df = pd.DataFrame(results)
 df.to_csv(OUTPUT_CSV, index=False)
-print(f"✅ Scene VAD projections saved to {OUTPUT_CSV}")
+print(f" Scene VAD projections saved to {OUTPUT_CSV}")
 
 
 # Load scene VAD
@@ -192,4 +175,4 @@ print(df.groupby('label')[['valence','arousal','dominance']].mean())
 
 # Save
 df.to_pickle("Dataset/twitter/df_with_image_vad.pkl")
-print("\n✅ Saved to df_with_image_vad.pkl")
+print("\n Saved to df_with_image_vad.pkl")

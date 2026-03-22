@@ -25,9 +25,9 @@ print("=" * 80)
 print("PREPARING DATA FOR CLUSTERING PIPELINE (CLEAN VERSION)")
 print("=" * 80)
 
-# ============================================================================
+
 # STEP 1: Load dataframe
-# ============================================================================
+
 
 print("\n[1/6] Loading dataframe...")
 df = pd.read_pickle("Dataset/twitter/df_preprocessed_with_scores.pkl")
@@ -51,22 +51,22 @@ if df["timestamp"].isnull().any():
 # Convert to Unix seconds
 df["timestamp_unix"] = df["timestamp"].view("int64") // 10**9
 
-print(f"✅ Posts after cleaning: {len(df)}")
+print(f" Posts after cleaning: {len(df)}")
 
-# ============================================================================
+
 # STEP 2: Load embeddings (NO RESIZING!)
-# ============================================================================
+
 
 print("\n[2/6] Loading embeddings...")
 
-# ---- Text embeddings (128)
+#  Text embeddings (128)
 text_embeddings = torch.tensor(
     np.array(df["semantic_vector"].tolist()),
     dtype=torch.float32
 )
-print("✅ Text:", text_embeddings.shape)
+print(" Text:", text_embeddings.shape)
 
-# ---- Image embeddings (1024)
+#  Image embeddings (1024)
 with open("Dataset/twitter/image_embeddings_cache.pkl", "rb") as f:
     cache = pickle.load(f)
 image_embeddings = cache["image_embeddings"]
@@ -79,9 +79,9 @@ elif len(image_embeddings) < N:
     pad = torch.zeros(N - len(image_embeddings), image_embeddings.shape[1])
     image_embeddings = torch.cat([image_embeddings, pad], dim=0)
 
-print("✅ Image:", image_embeddings.shape)
+print(" Image:", image_embeddings.shape)
 
-# ---- Metadata embeddings (128)
+#  Metadata embeddings (128)
 metadata_embeddings = torch.load("metadata_user_sequence_embeddings.pt")
 if metadata_embeddings.dim() == 3:
     metadata_embeddings = metadata_embeddings.squeeze(1)
@@ -92,9 +92,9 @@ elif len(metadata_embeddings) < N:
     pad = torch.zeros(N - len(metadata_embeddings), metadata_embeddings.shape[1])
     metadata_embeddings = torch.cat([metadata_embeddings, pad], dim=0)
 
-print("✅ Meta:", metadata_embeddings.shape)
+print(" Meta:", metadata_embeddings.shape)
 
-# ---- VAD
+#  VAD
 vad_data = torch.load("Dataset/twitter/prepared_vad_data.pt")
 
 for k in ["vad_text", "vad_image", "affective_meta"]:
@@ -104,13 +104,13 @@ for k in ["vad_text", "vad_image", "affective_meta"]:
         pad = torch.zeros(N - len(vad_data[k]), vad_data[k].shape[1])
         vad_data[k] = torch.cat([vad_data[k], pad], dim=0)
 
-print("✅ VAD text:", vad_data["vad_text"].shape)
-print("✅ VAD image:", vad_data["vad_image"].shape)
-print("✅ Affective meta:", vad_data["affective_meta"].shape)
+print(" VAD text:", vad_data["vad_text"].shape)
+print(" VAD image:", vad_data["vad_image"].shape)
+print(" Affective meta:", vad_data["affective_meta"].shape)
 
-# ============================================================================
+
 # STEP 3: Dataset
-# ============================================================================
+
 
 class ClusteringDataset(Dataset):
     def __init__(self, df, text_emb, image_emb, meta_emb, vad_data):
@@ -141,11 +141,11 @@ class ClusteringDataset(Dataset):
 dataset = ClusteringDataset(df, text_embeddings, image_embeddings, metadata_embeddings, vad_data)
 dataloader = DataLoader(dataset, batch_size=32, shuffle=False)
 
-print(f"✅ Dataset ready: {len(dataset)} samples")
+print(f" Dataset ready: {len(dataset)} samples")
 
-# ============================================================================
+
 # STEP 4: Load TRAINED emotion-aware model
-# ============================================================================
+
 
 print("\n[4/6] Loading Emotion-Aware Model...")
 
@@ -155,7 +155,7 @@ emotion_model = EmotionAwareFakeNewsDetector(
     d_text=128,
     d_image=1024,
     d_meta=128,
-    d_common=256,                  # 🔴 MUST be 256
+    d_common=256,                 
     vad_dim=3,
     meta_affective_dim=128,
     mismatch_dim=128,
@@ -163,19 +163,17 @@ emotion_model = EmotionAwareFakeNewsDetector(
     num_classes=1
 ).to(device)
 
-# 🔴 LOAD TRAINED WEIGHTS
-ckpt_path = "checkpoints/best_emotion_aware_detector.pth"   # <-- change if needed
+# LOAD TRAINED WEIGHTS
+ckpt_path = "checkpoints/best_emotion_aware_detector.pth"  
 state = torch.load("checkpoints/best_emotion_aware_detector.pth", map_location=device)
 
-# Remap keys: fusion.*  --> fusion_layer.*
+
 new_state = {}
 for k, v in state.items():
-    if k.startswith("fusion."):
-        # Remap fusion. → fusion_layer. to match rough_work architecture
+    if k.startswith("fusion."):  
         new_k = k.replace("fusion.", "fusion_layer.")
         new_state[new_k] = v
     elif k.startswith("classifier."):
-        # Keep classifier weights — architecture matches
         new_state[k] = v
     else:
         new_state[k] = v
@@ -188,11 +186,11 @@ print("Unexpected keys:", unexpected)
 
 emotion_model.eval()
 
-print("✅ Emotion model loaded")
+print(" Emotion model loaded")
 
-# ============================================================================
+
 # STEP 5: Extract embeddings
-# ============================================================================
+
 
 print("\n[5/6] Extracting embeddings...")
 
@@ -208,7 +206,7 @@ with torch.no_grad():
         vad_image = batch['vad_image'].to(device)
         affective_meta = batch['affective_meta'].to(device)
 
-        # ----- Step2: Emotion-aware model -----
+        # Step2: Emotion-aware model 
         logits, intermediates = emotion_model(
             h_text, h_image, h_meta,
             affective_meta=affective_meta,
@@ -216,8 +214,8 @@ with torch.no_grad():
             vad_image=vad_image
         )
         
-        z_aug = intermediates['z_aug']              # <-- real embedding
-        v_mismatch = intermediates['v_mismatch']   # <-- mismatch vector
+        z_aug = intermediates['z_aug']              # real embedding
+        v_mismatch = intermediates['v_mismatch']   # mismatch vector
 
         all_z.append(z_aug.cpu())
         all_v_mismatch.append(v_mismatch.cpu())
@@ -232,17 +230,16 @@ print("Sanity check:")
 print("  z std:", z_tensor.std().item())
 print("  v_mismatch std:", v_mismatch_tensor.std().item())
 
-# ============================================================================
+
 # STEP 6: Save
-# ============================================================================
+
 
 prepared = {
-    "z_out": z_tensor[:, :128],  # Take first 128 dims to match anomaly script
+    "z_out": z_tensor[:, :128],  
     "v_mismatch": v_mismatch_tensor,
     "user_ids": df["username"].tolist(),
     "timestamps": df["timestamp_unix"].values,
     "post_ids": df["post_id"].tolist(),
-    # optional extra fields
     "labels": df["label"].values,
     "meta": {
         "n_posts": len(df),
@@ -253,7 +250,7 @@ prepared = {
 
 torch.save(prepared, "prepared_clustering_data.pt")
 
-print("\n✅ Saved: prepared_clustering_data.pt")
+print("\n Saved: prepared_clustering_data.pt")
 print("=" * 80)
-print("✅ DATA PREPARATION COMPLETE")
+print(" DATA PREPARATION COMPLETE")
 

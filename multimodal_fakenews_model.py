@@ -77,16 +77,16 @@ df['urls_count'] = df['urls'].apply(len)
 df['emojis_count'] = df['emojis'].apply(len)
 df['num_posts_user'] = df.groupby('username')['post_id'].transform('count')
 
-# -------------------------
+
 # Load BERT
-# -------------------------
+
 tokenizer = BertTokenizerFast.from_pretrained("bert-base-uncased")
 bert_model = BertModel.from_pretrained("bert-base-uncased").to(device)
 bert_model.eval()
 
-# -------------------------
+
 # Semantic GAT
-# -------------------------
+
 class SemanticGAT(nn.Module):
     def __init__(self, hidden_size, out_size, num_edge_types=5):
         super().__init__()
@@ -111,9 +111,9 @@ class SemanticGAT(nn.Module):
 
 dep_att_layer = SemanticGAT(hidden_size=768, out_size=128).to(device)
 
-# -------------------------
+
 # Dependency adjacency
-# -------------------------
+
 def build_dep_adj(doc):
     seq_len = len(doc)
     adj = torch.zeros(seq_len, seq_len)
@@ -197,9 +197,9 @@ def build_dep_adj_bert_aligned(text, tokenizer, max_length=64):
     
     return adj, encoded
 
-# -------------------------
+
 # Text embeddings + semantic vectors
-# -------------------------
+
 batch_size = 16
 texts = df['clean_text'].tolist()
 all_global_embeddings, all_local_embeddings, semantic_vectors = [], [], []
@@ -237,11 +237,11 @@ df['global_embedding'] = all_global_embeddings
 df['local_embeddings'] = all_local_embeddings
 df['semantic_vector'] = semantic_vectors
 df.to_pickle("Dataset/twitter/df_with_embeddings.pkl")
-print("✅ Text embeddings + semantic vectors saved!")
+print(" Text embeddings + semantic vectors saved!")
 
-# -------------------------
+
 # Image Dataset
-# -------------------------
+
 img_folder = "Dataset/twitter/images_train"
 image_transform = T.Compose([T.Resize((224,224)), T.ToTensor(), T.Normalize(mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225])])
 
@@ -268,9 +268,9 @@ class TwitterDataset(Dataset):
 dataset = TwitterDataset(df, img_folder, transform=image_transform)
 dataloader = DataLoader(dataset, batch_size=8, shuffle=False)
 
-# -------------------------
+
 # Models
-# -------------------------
+
 # ViT + CNN
 vit_model_name = "google/vit-base-patch16-224-in21k"
 vit_extractor = ViTFeatureExtractor.from_pretrained(vit_model_name)
@@ -301,9 +301,9 @@ class VisionFusionModule(nn.Module):
 
 fusion_model = VisionFusionModule().to(device)
 
-# -------------------------
+
 # Embeddings cache
-# -------------------------
+
 cache_path = "Dataset/twitter/image_embeddings_cache.pkl"
 if os.path.exists(cache_path):
     print("Loading cached image embeddings...")
@@ -367,25 +367,25 @@ else:
     text_embeddings = torch.cat(text_embeddings, dim=0)
     with open(cache_path, "wb") as f:
         pickle.dump({'image_embeddings': image_embeddings, 'text_embeddings': text_embeddings}, f)
-    print("✅ Cached image embeddings saved!")
+    print(" Cached image embeddings saved!")
 
-# -------------------------
-# 1️⃣ Derived features (numeric & categorical)
-# -------------------------
+
+#  Derived features (numeric & categorical)
+
 numeric_features = ['hashtags_count', 'user_mentions_count', 'urls_count', 'emojis_count', 'num_posts_user']
 categorical_features = ['username']
 
-# -------------------------
+
 # Temporal encoding (sin/cos)
-# -------------------------
+
 def temporal_encoding(timestamps, period=24*60*60):
     sin_enc = np.sin(2 * np.pi * timestamps / period)
     cos_enc = np.cos(2 * np.pi * timestamps / period)
     return np.stack([sin_enc, cos_enc], axis=1)
 
-# -------------------------
-# 2️⃣ Preprocessing
-# -------------------------
+
+# Preprocessing
+
 preprocessor = ColumnTransformer(transformers=[
     ('num', StandardScaler(), numeric_features),
     ('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), categorical_features)
@@ -402,9 +402,9 @@ temporal_array = temporal_encoding(timestamps_unix)
 metadata_array = np.hstack([numeric_cat_array, temporal_array])
 metadata_tensor = torch.tensor(metadata_array, dtype=torch.float32).to(device)
 
-# -------------------------
-# 3️⃣ Dense embedding projection
-# -------------------------
+
+# Dense embedding projection
+
 class MetadataEmbedding(nn.Module):
     def __init__(self, input_dim, embed_dim=128):
         super().__init__()
@@ -417,9 +417,9 @@ class MetadataEmbedding(nn.Module):
 metadata_embed_model = MetadataEmbedding(input_dim=metadata_tensor.shape[1], embed_dim=128).to(device)
 dense_embeddings = metadata_embed_model(metadata_tensor)
 
-# -------------------------
-# 4️⃣ Optional Sequence Modeling (per-user GRU)
-# -------------------------
+
+# Optional Sequence Modeling (per-user GRU)
+
 user_groups = df.groupby('username')['post_id'].apply(list).to_dict()
 gru_input_dim = dense_embeddings.shape[1]
 gru_hidden_dim = 128
@@ -435,17 +435,17 @@ with torch.no_grad():
 
 metadata_embedding_vector = torch.stack([user_embedding_dict[u] for u in df['username']], dim=0)
 
-# -------------------------
-# 5️⃣ Save raw embeddings
-# -------------------------
+
+#  Save raw embeddings
+
 torch.save(dense_embeddings.cpu(), "metadata_dense_embeddings.pt")
 torch.save(metadata_embedding_vector.cpu(), "metadata_user_sequence_embeddings.pt")
-print("✅ Dense embeddings shape:", dense_embeddings.shape)
-print("✅ Metadata sequence embeddings shape:", metadata_embedding_vector.shape)
+print(" Dense embeddings shape:", dense_embeddings.shape)
+print(" Metadata sequence embeddings shape:", metadata_embedding_vector.shape)
 
-# ===================================================================
-# 🔥 PREPROCESSING PIPELINE (BEFORE MODEL TRAINING)
-# ===================================================================
+
+#  PREPROCESSING PIPELINE (BEFORE MODEL TRAINING)
+
 
 class EmbeddingPreprocessor:
     """
@@ -688,9 +688,9 @@ class EmbeddingPreprocessor:
         }
 
 
-# ===================================================================
-# 🔥 APPLY PREPROCESSING PIPELINE (CRITICAL: BEFORE MODEL TRAINING)
-# ===================================================================
+
+#  APPLY PREPROCESSING PIPELINE (CRITICAL: BEFORE MODEL TRAINING)
+
 
 print("\n" + "="*70)
 print("APPLYING PREPROCESSING PIPELINE TO EMBEDDINGS")
@@ -740,9 +740,9 @@ torch.save(torch.tensor(preprocessing_results['meta_reduced']), "Dataset/twitter
 # Save cluster labels for analysis
 df['cluster_label'] = preprocessing_results['cluster_labels']
 
-# ===================================================================
+
 # 🔥 USE PREPROCESSED EMBEDDINGS FOR MODEL TRAINING
-# ===================================================================
+
 
 # Convert preprocessed embeddings back to tensors
 preprocessed_text_embeddings = torch.tensor(
@@ -769,11 +769,11 @@ print(f"  Meta (reduced): {preprocessed_meta_embeddings.shape}")
 preprocessor_path = "Dataset/twitter/embedding_preprocessor.pkl"
 with open(preprocessor_path, 'wb') as f:
     pickle.dump(embedding_preprocessor, f)
-print(f"\n✅ Preprocessor saved to {preprocessor_path}")
+print(f"\n Preprocessor saved to {preprocessor_path}")
 
-# -------------------------
+
 # Inner Fusion (Text + Image) - NOW USING PREPROCESSED EMBEDDINGS
-# -------------------------
+
 class InnerFusionModule(nn.Module):
     def __init__(self, text_dim=64, image_dim=64, fused_dim=1024):  # Updated dims
         super().__init__()
@@ -811,9 +811,9 @@ class CrossVerifier(nn.Module):
 
 cross_verifier_model = CrossVerifier().to(device)
 
-# -------------------------
+
 # Prepare CrossVerifier training WITH PREPROCESSED EMBEDDINGS
-# -------------------------
+
 # Label-aware negative sampling
 fake_indices = torch.tensor([i for i, label in enumerate(df['label']) 
                               if label in [1, 'fake', 'Fake']])
@@ -878,9 +878,9 @@ for epoch in range(epochs):
         epoch_loss += loss.item()
     print(f"Epoch {epoch+1}/{epochs}, Loss: {epoch_loss/len(train_loader):.4f}")
 
-# -------------------------
+
 # Generate contradiction scores WITH PREPROCESSED EMBEDDINGS
-# -------------------------
+
 cross_fusion.eval()
 cross_verifier_model.eval()
 with torch.no_grad():
@@ -892,19 +892,19 @@ with torch.no_grad():
 
 df['contradiction_score'] = contradiction_scores
 df.to_pickle("Dataset/twitter/df_preprocessed_with_scores.pkl")
-print("\n✅ Contradiction scores generated with preprocessed embeddings!")
+print("\n Contradiction scores generated with preprocessed embeddings!")
 
-# =======================================================================================
+
 # ADAPTIVE MULTIMODAL FUSION LAYER - NOW USING PREPROCESSED EMBEDDINGS
-# =======================================================================================
+
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# ==============================================================================
+
 # STEP 1: INPUT PROJECTION - UPDATED DIMENSIONS
-# ==============================================================================
+
 
 class Step1_InputProjection(nn.Module):
     def __init__(self, d_text=64, d_image=64, d_meta=64, d_common=256):  # Updated
@@ -942,9 +942,9 @@ class Step1_InputProjection(nn.Module):
         return z_text, z_image, z_meta
 
 
-# ==============================================================================
+
 # STEP 2: CROSS-MODAL ATTENTION
-# ==============================================================================
+
 
 class Step2_CrossModalAttention(nn.Module):
     def __init__(self, d_common):
@@ -996,9 +996,9 @@ class Step2_CrossModalAttention(nn.Module):
 
         return z_text_attn, z_image_attn, z_meta_attn, avg_attn
 
-# ==============================================================================
+
 # STEP 3: MISMATCH VECTOR
-# ==============================================================================
+
 
 class Step3_MismatchVector(nn.Module):
     def __init__(self, d_common=256):
@@ -1019,9 +1019,9 @@ class Step3_MismatchVector(nn.Module):
         return v_mismatch
 
 
-# ==============================================================================
+
 # STEP 4: PATTERN LEARNER
-# ==============================================================================
+
 
 class ModalityPatternLearner(nn.Module):
     def __init__(self, d_common=256, hidden_dim=128):
@@ -1092,9 +1092,9 @@ class ModalityPatternLearner(nn.Module):
         return suspicion_scores, pattern_confidence
 
 
-# ==============================================================================
+
 # STEP 4b: MISMATCH ANALYZER
-# ==============================================================================
+
 
 class ModalityMismatchAnalyzer(nn.Module):
     def __init__(self, d_common=256):
@@ -1118,9 +1118,9 @@ class ModalityMismatchAnalyzer(nn.Module):
         return alignment_score, mismatch_mag, is_contradictory
 
 
-# ==============================================================================
+
 # STEP 4c: ADAPTIVE MODALITY WEIGHTING
-# ==============================================================================
+
 
 class AdaptiveModalityWeighting(nn.Module):
     def __init__(self, d_common=256):
@@ -1151,9 +1151,9 @@ class AdaptiveModalityWeighting(nn.Module):
         return z_fused, modality_weights
 
 
-# ==============================================================================
+
 # STEP 5: CLASSIFICATION HEAD WITH UNCERTAINTY
-# ==============================================================================
+
 
 class ClassificationHeadWithUncertainty(nn.Module):
     def __init__(self, d_in=256, d_hidden=256):
@@ -1178,9 +1178,9 @@ class ClassificationHeadWithUncertainty(nn.Module):
         return logit, uncertainty_score
 
 
-# ==============================================================================
+
 # COMPLETE MODEL - WITH PREPROCESSED EMBEDDING DIMENSIONS
-# ==============================================================================
+
 
 class AdaptiveMultimodalFakeNewsDetector(nn.Module):
     def __init__(self, d_text=64, d_image=64, d_meta=64, d_common=256):  # Updated
@@ -1226,9 +1226,9 @@ class AdaptiveMultimodalFakeNewsDetector(nn.Module):
         return logit
 
 
-# ==============================================================================
+
 # LOSSES
-# ==============================================================================
+
 
 class ContrastiveMismatchLoss(nn.Module):
     def __init__(self, temperature=0.1):
@@ -1245,9 +1245,9 @@ class ContrastiveMismatchLoss(nn.Module):
         return loss
 
 
-# ==============================================================================
+
 # HELPER FUNCTIONS
-# ==============================================================================
+
 
 def unpack_batch(batch, device):
     """Extract batch tensors safely"""
@@ -1301,9 +1301,9 @@ def train_step(model, batch, criterion, mismatch_loss_fn, optimizer,
     }
 
 
-# ==============================================================================
+
 # TEST WITH PREPROCESSED EMBEDDINGS
-# ==============================================================================
+
 
 print("\n" + "="*70)
 print("INITIALIZING MODEL WITH PREPROCESSED EMBEDDING DIMENSIONS")
@@ -1316,7 +1316,7 @@ model = AdaptiveMultimodalFakeNewsDetector(
     d_common=256
 ).to(device)
 
-print("✅ Model created successfully!")
+print(" Model created successfully!")
 print(f"Total parameters: {sum(p.numel() for p in model.parameters()):,}")
 
 # Create test batch with preprocessed embeddings
@@ -1331,18 +1331,15 @@ batch = {
 print("\nRunning forward pass with preprocessed embeddings...")
 with torch.no_grad():
     logits, outputs = model(batch['text'], batch['image'], batch['metadata'], return_intermediates=True)
-    print(f"✅ Output logits shape: {logits.shape}")
-    print(f"✅ Modality weights: {outputs['modality_weights'][0]}")
+    print(f" Output logits shape: {logits.shape}")
+    print(f" Modality weights: {outputs['modality_weights'][0]}")
 
-print("\n" + "="*70)
-print("READY FOR TRAINING WITH PREPROCESSED EMBEDDINGS!")
-print("="*70)
 print("\nCluster analysis:")
 cluster_counts = df['cluster_label'].value_counts().sort_index()
 print(cluster_counts)
 if preprocessing_results['silhouette_score']:
     print(f"\nSilhouette score: {preprocessing_results['silhouette_score']:.3f}")
 
-print("\n✅ ALL PREPROCESSING AND INTEGRATION COMPLETE!")
-print("✅ Models are now using normalized, aligned, and dimensionality-reduced embeddings!")
-print("✅ This should significantly improve training performance and convergence!")
+print("\n ALL PREPROCESSING AND INTEGRATION COMPLETE!")
+print(" Models are now using normalized, aligned, and dimensionality-reduced embeddings!")
+print(" This should significantly improve training performance and convergence!")

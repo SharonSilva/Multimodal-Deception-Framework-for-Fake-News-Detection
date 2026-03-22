@@ -1,7 +1,4 @@
 """
-emotion_gated_mechanism.py - COMPLETE PRODUCTION VERSION
----------------------------------------------------------
-100% Complete Emotion-Gated Mechanism with:
 1. Emotional Congruence Analysis (VAD-based)
 2. Mismatch Vector Generation (preserved explicitly)
 3. Fine-Grained Emotion Processing (VAD + Temporal)
@@ -22,9 +19,7 @@ from torchvision import transforms
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# ============================================================================
 # EMOTION-TO-VAD PROJECTION MODULE
-# ============================================================================
 
 class EmotionToVADProjector(nn.Module):
     """
@@ -67,9 +62,7 @@ class EmotionToVADProjector(nn.Module):
         return vad
 
 
-# ============================================================================
 # COMPONENT 1: EMOTIONAL CONGRUENCE ANALYSIS
-# ============================================================================
 
 class EmotionalCongruenceScorer(nn.Module):
     """
@@ -86,9 +79,7 @@ class EmotionalCongruenceScorer(nn.Module):
         return congruence.unsqueeze(-1)
 
 
-# ============================================================================
 # COMPONENT 2: MISMATCH VECTOR GENERATION
-# ============================================================================
 
 class MismatchVectorGenerator(nn.Module):
     """
@@ -101,7 +92,7 @@ class MismatchVectorGenerator(nn.Module):
     """
     def __init__(self, vad_dim=3, meta_affective_dim=128, mismatch_dim=128):
         super().__init__()
-        # NO LayerNorm - preserves discrimination
+        # NO LayerNorm 
         self.mismatch_encoder = nn.Sequential(
             nn.Linear(vad_dim + meta_affective_dim, 256),
             nn.ReLU(),
@@ -118,10 +109,7 @@ class MismatchVectorGenerator(nn.Module):
         v_mismatch = self.mismatch_encoder(m_prime)
         return v_mismatch
 
-
-# ============================================================================
 # COMPONENT 3: FINE-GRAINED EMOTION PROCESSING
-# ============================================================================
 
 class FineGrainedEmotionProcessor(nn.Module):
     """
@@ -163,15 +151,14 @@ class FineGrainedEmotionProcessor(nn.Module):
         return temporal_embedding, mixed_affect_score
 
 
-# ============================================================================
+
 # COMPLETE EMOTION-GATED MECHANISM
-# ============================================================================
 
 class EmotionGatedMechanism(nn.Module):
     """
     Complete emotion-gated mechanism with dual input support:
-    - Pathway 1: Direct VAD inputs
-    - Pathway 2: Discrete emotions → VAD projection
+    Pathway 1: Direct VAD inputs
+    Pathway 2: Discrete emotions → VAD projection
     """
     def __init__(
         self, 
@@ -254,9 +241,9 @@ class EmotionGatedMechanism(nn.Module):
             vad_text_final, vad_image_final
         )
 
-# ============================================================================
+
 # EMOTION-AWARE FUSION LAYER
-# ============================================================================
+
 
 class EmotionAwareFusionLayer(nn.Module):
     """
@@ -338,9 +325,9 @@ class EmotionAwareFusionLayer(nn.Module):
         m_prime = torch.cat([temporal_feats, mixed_affect], dim=-1)
 
         z_aug = torch.cat([
-            z_fused,          # semantic content
-            v_mismatch_norm,  # deception signal
-            m_prime           # affective behavior dynamics
+            z_fused,          
+            v_mismatch_norm,  
+            m_prime           
         ], dim=-1)
         
         intermediates = {
@@ -381,7 +368,7 @@ class EmotionAwareFakeNewsDetector(nn.Module):
             # Fusion output size
             self.fusion_output_dim = d_common + mismatch_dim + (temporal_hidden + 1)
 
-            # ✅ Use your EXISTING fusion module here
+            #  Use your EXISTING fusion module here
             self.fusion_layer = EmotionAwareFusionLayer(
                 d_text=d_text,
                 d_image=d_image,
@@ -392,7 +379,7 @@ class EmotionAwareFakeNewsDetector(nn.Module):
                 mismatch_dim=mismatch_dim,
             )
 
-            # ✅ Classification head
+            #  Classification head
             self.classifier = nn.Sequential(
                 nn.Linear(self.fusion_output_dim, 512),
                 nn.ReLU(),
@@ -416,7 +403,7 @@ class EmotionAwareFakeNewsDetector(nn.Module):
             emotion_probs_text=None,
             emotion_probs_image=None
         ):
-            # 1️⃣ Fusion
+            #  Fusion
             z_aug, intermediates = self.fusion_layer(
                 h_text, h_image, h_meta,
                 affective_meta,
@@ -427,15 +414,15 @@ class EmotionAwareFakeNewsDetector(nn.Module):
                 emotion_probs_image=emotion_probs_image
             )
 
-            # 2️⃣ Classification
+            #  Classification
             logits = self.classifier(z_aug)
 
             return logits, intermediates
 
 
-# ============================================================================
+
 # DATA EXTRACTION PIPELINE
-# ============================================================================
+
 
 class VADDataExtractor:
     """
@@ -501,7 +488,7 @@ class VADDataExtractor:
         Prepare complete VAD data from all sources, handling missing images
         and ensuring consistent array shapes.
         """
-        # ===== 1. Text VAD (already computed) =====
+        # Text VAD  
         print("Loading text VAD...")
         vad_text = torch.tensor(
             df[['text_valence', 'text_arousal', 'text_dominance']].values,
@@ -510,7 +497,7 @@ class VADDataExtractor:
 
         vad_components = []
 
-        # ===== 2. Face VAD =====
+        # Face VAD
         if use_face and affectnet_model_path and image_folder:
             from train_vit_vad import ViTForVAD
             print("Loading face emotion model...")
@@ -533,20 +520,20 @@ class VADDataExtractor:
                         vad_pred, _ = model(img_tensor)
                         vad_face.append(vad_pred.cpu().numpy()[0])
                     except Exception as e:
-                        # Silent fallback for missing images (too verbose otherwise)
+                        # Silent fallback for missing images 
                         vad_face.append(np.array([0.0, 0.0, 0.0]))
 
             vad_face = np.array(vad_face)
-            print(f"✅ Extracted face VAD: {vad_face.shape}")
+            print(f" Extracted face VAD: {vad_face.shape}")
             vad_components.append(vad_face)
 
-        # ===== 3. Scene VAD =====
+        # Scene VAD 
         if use_scene and scene_csv_path:
             vad_scene = self.extract_scene_vad(scene_csv_path)
             
             # Handle size mismatch
             if len(vad_scene) != len(df):
-                print(f"⚠️ Scene VAD length ({len(vad_scene)}) != posts ({len(df)})")
+                print(f" Scene VAD length ({len(vad_scene)}) != posts ({len(df)})")
                 
                 if len(vad_scene) < len(df):
                     # Pad with zeros
@@ -559,10 +546,10 @@ class VADDataExtractor:
                     vad_scene = vad_scene[:len(df)]
                     print(f"   Trimmed scene VAD to {len(df)}")
             
-            print(f"✅ Scene VAD ready: {vad_scene.shape}")
+            print(f" Scene VAD ready: {vad_scene.shape}")
             vad_components.append(vad_scene)
 
-        # ===== 4. Combine face and scene VAD =====
+        #  Combine face and scene VAD 
         if len(vad_components) > 0:
             # Ensure all arrays are same length
             target_len = len(df)
@@ -570,7 +557,7 @@ class VADDataExtractor:
             
             for i, vad_comp in enumerate(vad_components):
                 if len(vad_comp) != target_len:
-                    print(f"⚠️ Component {i} length mismatch, fixing...")
+                    print(f" Component {i} length mismatch, fixing...")
                     if len(vad_comp) < target_len:
                         pad_len = target_len - len(vad_comp)
                         vad_comp = np.vstack([vad_comp, np.zeros((pad_len, 3))])
@@ -580,40 +567,40 @@ class VADDataExtractor:
             
             # Average face and scene VAD
             vad_image = np.mean(vad_components_aligned, axis=0)
-            print(f"✅ Combined image VAD (face + scene): {vad_image.shape}")
+            print(f" Combined image VAD (face + scene): {vad_image.shape}")
         else:
-            print("⚠️ No image VAD sources, using neutral values")
+            print(" No image VAD sources, using neutral values")
             vad_image = np.full((len(df), 3), 0.5)
 
         vad_image = torch.tensor(vad_image, dtype=torch.float32)
 
-        # ===== 5. Affective metadata (FIXED) =====
+        # 5. Affective metadata (FIXED) 
         print("Loading affective metadata...")
         try:
             affective_meta = np.load("Dataset/affectnet/affective_embedding.npy")
             
             # Handle size mismatch
             if len(affective_meta) < len(df):
-                print(f"⚠️ Affective embeddings ({len(affective_meta)}) < posts ({len(df)})")
+                print(f" Affective embeddings ({len(affective_meta)}) < posts ({len(df)})")
                 print("   Padding with mean values...")
                 mean_embedding = affective_meta.mean(axis=0)
                 pad_size = len(df) - len(affective_meta)
                 padding = np.tile(mean_embedding, (pad_size, 1))
                 affective_meta = np.vstack([affective_meta, padding])
             elif len(affective_meta) > len(df):
-                print(f"⚠️ Affective embeddings ({len(affective_meta)}) > posts ({len(df)})")
+                print(f" Affective embeddings ({len(affective_meta)}) > posts ({len(df)})")
                 print("   Trimming to match...")
                 affective_meta = affective_meta[:len(df)]
             
             affective_meta = torch.tensor(affective_meta, dtype=torch.float32)
-            print(f"✅ Affective metadata: {affective_meta.shape}")
+            print(f" Affective metadata: {affective_meta.shape}")
             
         except Exception as e:
-            print(f"⚠️ Affective embeddings error: {e}")
+            print(f" Affective embeddings error: {e}")
             print("   Using random values as fallback...")
             affective_meta = torch.randn(len(df), 128)
 
-        # ===== 6. Optional: Create temporal sequences per user =====
+        # 6. Optional: Create temporal sequences per user 
         if 'username' in df.columns:
             print("Creating user-level VAD sequences...")
             user_sequences = {}
@@ -622,35 +609,34 @@ class VADDataExtractor:
                 user_vad = vad_text[user_mask]
                 if len(user_vad) > 1:
                     user_sequences[user] = user_vad
-            print(f"✅ Created sequences for {len(user_sequences)} users")
+            print(f" Created sequences for {len(user_sequences)} users")
         else:
             user_sequences = None
 
-        # ===== 7. Prepare output dictionary =====
+        #  7. Prepare output dictionary 
         output_dict = {
             'vad_text': vad_text,
             'vad_image': vad_image,
             'affective_meta': affective_meta,
-            'vad_sequence': vad_text.unsqueeze(1),  # [B, 1, 3] for single posts
+            'vad_sequence': vad_text.unsqueeze(1), 
             'user_sequences': user_sequences
         }
         
-        # ===== 8. Save prepared data for future use =====
+        #  Save prepared data for future use
         save_path = 'Dataset/twitter/prepared_vad_data.pt'
         try:
             # Create directory if it doesn't exist
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
             torch.save(output_dict, save_path)
-            print(f"✅ Saved prepared VAD data to {save_path}")
+            print(f" Saved prepared VAD data to {save_path}")
         except Exception as e:
-            print(f"⚠️ Could not save VAD data: {e}")
+            print(f" Could not save VAD data: {e}")
         
         return output_dict
 
 
-# ============================================================================
 # COMPLETE TRAINING PIPELINE
-# ============================================================================
+
 
 def train_emotion_aware_model(
     model,
@@ -749,22 +735,20 @@ def train_emotion_aware_model(
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             torch.save(model.state_dict(), "best_emotion_aware_model.pth")
-            print("  ✅ Best model saved!")
+            print("   Best model saved!")
     
     return model
 
 
-# ============================================================================
 # USAGE EXAMPLE
-# ============================================================================
 
 if __name__ == "__main__":
     print("="*70)
     print("COMPLETE EMOTION-GATED MECHANISM - PRODUCTION VERSION")
     print("="*70)
     
-    # ===== STEP 1: Extract VAD from all sources =====
-    print("\n📊 Step 1: Extracting VAD data...")
+    # STEP 1: Extract VAD from all sources 
+    print("\n Step 1: Extracting VAD data...")
     
     df = pd.read_pickle("Dataset/twitter/df_with_text_emotions_vad.pkl")
     
@@ -778,12 +762,12 @@ if __name__ == "__main__":
         image_folder="Dataset/twitter/images_train"
     )
     
-    print(f"✅ VAD data prepared:")
+    print(f" VAD data prepared:")
     print(f"   Text VAD: {vad_data['vad_text'].shape}")
     print(f"   Image VAD: {vad_data['vad_image'].shape}")
     print(f"   Affective meta: {vad_data['affective_meta'].shape}")
     
-    # ===== STEP 2: Initialize model =====
+    #  Initialize model 
     print("\n🔧 Step 2: Initializing model...")
     
     model = EmotionAwareFakeNewsDetector(
@@ -796,11 +780,11 @@ if __name__ == "__main__":
         mismatch_dim=128
     ).to(device)
     
-    print(f"✅ Model initialized")
+    print(f" Model initialized")
     print(f"   Total parameters: {sum(p.numel() for p in model.parameters()):,}")
     
-    # ===== STEP 3: Test forward pass =====
-    print("\n🧪 Step 3: Testing forward pass...")
+    #  Test forward pass
+    print("\n Step 3: Testing forward pass...")
     
     batch_size = 8
     h_text = torch.randn(batch_size, 128).to(device)
@@ -814,18 +798,3 @@ if __name__ == "__main__":
         vad_image=vad_data['vad_image'][:batch_size].to(device)
     )
     
-    print(f"✅ Forward pass successful!")
-    print(f"Logits shape: {logits.shape} (expected: [batch, 1])")
-    print(f"z_aug shape: {intermediates['z_aug'].shape} (expected: [batch, 449])")
-    print(f"   Congruence: {intermediates['congruence'][0].item():.4f}")
-    print(f"   Gamma: {intermediates['gamma'].item():.4f}")
-    print(f"   Mismatch magnitude: {intermediates['v_mismatch'][0].norm().item():.4f}")
-    
-    print("\n" + "="*70)
-    print("✅ ALL SYSTEMS OPERATIONAL - READY FOR PRODUCTION!")
-    print("="*70)
-    
-    print("\n📝 Next steps:")
-    print("1. Prepare your DataLoader with VAD data")
-    print("2. Run: train_emotion_aware_model(model, train_loader, val_loader, optimizer)")
-    print("3. Integrate with your complete detection pipeline")

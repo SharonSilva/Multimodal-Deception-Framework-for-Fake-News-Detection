@@ -10,24 +10,17 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 from sklearn.model_selection import train_test_split
-#train_vit_vad.py
-# -------------------------
-# Device
-# -------------------------
+
 DEVICE = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
 print(f"⚡ Using device: {DEVICE}")
 
-# -------------------------
-# Paths
-# -------------------------
-LABELS_CSV = "Dataset/affectnet/labels.csv"  # columns: 'pth', 'label'
+
+LABELS_CSV = "Dataset/affectnet/labels.csv"  
 TRAIN_DIR = "Dataset/affectnet/Train"
 SAVE_MODEL_PATH = "vit_affectnet_vad.pth"
 VAD_CACHE = "Dataset/affectnet/labels_with_vad.csv"
 
-# -------------------------
-# Emotion → VAD mapping
-# -------------------------
+
 emotion_to_vad = {
     0: [0.5, 0.3, 0.5],  # neutral
     1: [0.8, 0.6, 0.7],  # happy
@@ -45,35 +38,27 @@ def compute_vad_from_emotion_label(label):
     vad += np.random.normal(0, 0.02, size=3)
     return np.clip(vad, -1, 1)
 
-# -------------------------
-# Load CSV and filter missing files
-# -------------------------
+
 labels_df = pd.read_csv(LABELS_CSV)
 labels_df['exists'] = labels_df['pth'].apply(lambda x: os.path.exists(os.path.join(TRAIN_DIR, os.path.basename(x))))
 labels_df = labels_df[labels_df['exists']].reset_index(drop=True)
 
-# -------------------------
-# Generate/load VAD cache
-# -------------------------
+
 if not os.path.exists(VAD_CACHE):
-    print("🧠 Generating VAD values...")
+    print(" Generating VAD values...")
     vad_values = [compute_vad_from_emotion_label(row['label']) for _, row in tqdm(labels_df.iterrows(), total=len(labels_df))]
     labels_df[['valence', 'arousal', 'dominance']] = pd.DataFrame(vad_values)
     labels_df.to_csv(VAD_CACHE, index=False)
 else:
     labels_df = pd.read_csv(VAD_CACHE)
-    print(f"📂 Loaded precomputed VADs from {VAD_CACHE}")
+    print(f" Loaded precomputed VADs from {VAD_CACHE}")
 
-# -------------------------
-# Train/Val split
-# -------------------------
+
 train_df, val_df = train_test_split(labels_df, test_size=0.1, random_state=42)
 train_df.to_csv("Dataset/affectnet/train_vad.csv", index=False)
 val_df.to_csv("Dataset/affectnet/val_vad.csv", index=False)
 
-# -------------------------
-# Transforms
-# -------------------------
+
 transform_train = transforms.Compose([
     transforms.Resize((224,224)),
     transforms.RandomHorizontalFlip(),
@@ -87,9 +72,7 @@ transform_val = transforms.Compose([
     transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])
 ])
 
-# -------------------------
-# Dataset
-# -------------------------
+
 class AffectNetDataset(Dataset):
     def __init__(self, csv_file, img_dir, transform=None):
         self.data = pd.read_csv(csv_file)
@@ -111,9 +94,7 @@ class AffectNetDataset(Dataset):
         vad = compute_vad_from_emotion_label(row['label'])
         return img, torch.tensor(vad, dtype=torch.float32)
 
-# -------------------------
-# ViT for VAD
-# -------------------------
+
 class ViTForVAD(nn.Module):
     def __init__(self, vad_dim=3):
         super().__init__()
@@ -126,9 +107,7 @@ class ViTForVAD(nn.Module):
         vad_pred = self.vad_head(feats)
         return vad_pred, feats
 
-# -------------------------
-# VAD projector (used after training for embeddings)
-# -------------------------
+
 class VADProjector(nn.Module):
     def __init__(self, input_dim=3, hidden_dim=16, output_dim=64):
         super().__init__()
@@ -159,9 +138,7 @@ class VADProjector(nn.Module):
                 print(f"  VAD projector epoch {epoch+1}/{epochs}, loss: {loss.item():.4f}")
         self.eval()
 
-# -------------------------
-# Training function (ViT → 3D VAD)
-# -------------------------
+
 def train_model(train_loader, val_loader, model, epochs=3, lr=1e-4):
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-5)
     loss_fn = nn.MSELoss()
@@ -178,7 +155,7 @@ def train_model(train_loader, val_loader, model, epochs=3, lr=1e-4):
             optimizer.step()
             train_loss += loss.item()
             loop.set_postfix(loss=train_loss / (loop.n + 1))
-        # Validation
+
         model.eval()
         val_loss = 0
         loop = tqdm(val_loader, desc=f"Epoch {epoch+1}/{epochs} [Val]")
@@ -191,9 +168,6 @@ def train_model(train_loader, val_loader, model, epochs=3, lr=1e-4):
         print(f"📊 Epoch {epoch+1}/{epochs} | Train Loss: {train_loss/len(train_loader):.4f} | Val Loss: {val_loss/len(val_loader):.4f}")
     return model
 
-# -------------------------
-# Main
-# -------------------------
 if __name__ == "__main__":
     train_dataset = AffectNetDataset("Dataset/affectnet/train_vad.csv", TRAIN_DIR, transform=transform_train)
     val_dataset = AffectNetDataset("Dataset/affectnet/val_vad.csv", TRAIN_DIR, transform=transform_val)
@@ -237,7 +211,7 @@ if __name__ == "__main__":
     vad_projector.train_supervised(vad_preds_tensor, labels_tensor)
 
     torch.save(vad_projector.state_dict(), "vad_projector.pth")
-    print("✅ VAD model and projector saved.")
+    print(" VAD model and projector saved.")
 
     # Extract 64D embeddings for downstream tasks
     dataset_loader = DataLoader(AffectNetDataset(VAD_CACHE, TRAIN_DIR, transform=transform_val), batch_size=16, shuffle=False, num_workers=0)
@@ -252,4 +226,4 @@ if __name__ == "__main__":
             all_embeddings.extend(embeddings.cpu().numpy())
     labels_df['image_vad_embedding'] = all_embeddings
     labels_df.to_pickle("Dataset/affectnet/df_with_image_vad_embedding.pkl")
-    print("✅ Image VAD embeddings saved.")
+    print(" Image VAD embeddings saved.")

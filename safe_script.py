@@ -41,24 +41,22 @@ from sklearn.cluster import HDBSCAN, SpectralBiclustering
 from sklearn.metrics import silhouette_score
 import umap
 
-# -------------------------
+
 # Device
-# -------------------------
+
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# -------------------------
+
 # Load SpaCy
-# -------------------------
+
 nlp = spacy.load("en_core_web_sm")
 
-# -------------------------
+
 # Load Dataset
-# -------------------------
 df = pd.read_csv("Dataset/twitter/df_train_translated.csv")
 
-# -------------------------
+
 # Text preprocessing
-# -------------------------
 def extract_hashtags(text):
     return re.findall(r'#\w+', str(text))
 
@@ -92,16 +90,14 @@ df['urls_count'] = df['urls'].apply(len)
 df['emojis_count'] = df['emojis'].apply(len)
 df['num_posts_user'] = df.groupby('username')['post_id'].transform('count')
 
-# -------------------------
+
 # Load BERT
-# -------------------------
 tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
 bert_model = BertModel.from_pretrained("bert-base-uncased").to(device)
 bert_model.eval()
 
-# -------------------------
+
 # Semantic GAT
-# -------------------------
 class SemanticGAT(nn.Module):
     def __init__(self, hidden_size, out_size, num_edge_types=5):
         super().__init__()
@@ -126,9 +122,8 @@ class SemanticGAT(nn.Module):
 
 dep_att_layer = SemanticGAT(hidden_size=768, out_size=128).to(device)
 
-# -------------------------
+
 # Dependency adjacency
-# -------------------------
 def build_dep_adj(doc):
     seq_len = len(doc)
     adj = torch.zeros(seq_len, seq_len)
@@ -153,9 +148,8 @@ def align_adj_to_bert(adj, bert_seq_len):
         padded[:seq_len, :seq_len] = adj
     return padded
 
-# -------------------------
 # Text embeddings + semantic vectors
-# -------------------------
+
 batch_size = 16
 texts = df['clean_text'].tolist()
 all_global_embeddings, all_local_embeddings, semantic_vectors = [], [], []
@@ -187,11 +181,10 @@ df['global_embedding'] = all_global_embeddings
 df['local_embeddings'] = all_local_embeddings
 df['semantic_vector'] = semantic_vectors
 df.to_pickle("Dataset/twitter/df_with_embeddings.pkl")
-print("✅ Text embeddings + semantic vectors saved!")
+print(" Text embeddings + semantic vectors saved!")
 
-# -------------------------
+
 # Image Dataset
-# -------------------------
 img_folder = "Dataset/twitter/images_train"
 image_transform = T.Compose([T.Resize((224,224)), T.ToTensor(), T.Normalize(mean=[0.485,0.456,0.406], std=[0.229,0.224,0.225])])
 
@@ -218,9 +211,8 @@ class TwitterDataset(Dataset):
 dataset = TwitterDataset(df, img_folder, transform=image_transform)
 dataloader = DataLoader(dataset, batch_size=8, shuffle=False)
 
-# -------------------------
+
 # Models
-# -------------------------
 # ViT + CNN
 vit_model_name = "google/vit-base-patch16-224-in21k"
 vit_extractor = ViTFeatureExtractor.from_pretrained(vit_model_name)
@@ -286,9 +278,8 @@ class CrossVerifier(nn.Module):
 
 cross_verifier_model = CrossVerifier().to(device)
 
-# -------------------------
+
 # Embeddings cache
-# -------------------------
 cache_path = "Dataset/twitter/image_embeddings_cache.pkl"
 if os.path.exists(cache_path):
     print("Loading cached image embeddings...")
@@ -352,11 +343,10 @@ else:
     text_embeddings = torch.cat(text_embeddings, dim=0)
     with open(cache_path, "wb") as f:
         pickle.dump({'image_embeddings': image_embeddings, 'text_embeddings': text_embeddings}, f)
-    print("✅ Cached image embeddings saved!")
+    print("Cached image embeddings saved!")
 
-# -------------------------
+
 # Prepare CrossVerifier training
-# -------------------------
 pos_pairs = torch.arange(len(image_embeddings))
 pos_labels = torch.ones(len(pos_pairs))
 neg_pairs = torch.randperm(len(image_embeddings))
@@ -385,9 +375,8 @@ for epoch in range(epochs):
         epoch_loss += loss.item()
     print(f"Epoch {epoch+1}/{epochs}, Loss: {epoch_loss/len(train_loader):.4f}")
 
-# -------------------------
+
 # Generate contradiction scores
-# -------------------------
 cross_fusion.eval()
 cross_verifier_model.eval()
 with torch.no_grad():
@@ -396,25 +385,22 @@ with torch.no_grad():
 
 df['contradiction_score'] = contradiction_scores
 df.to_pickle("Dataset/twitter/df_with_contradiction_scores.pkl")
-print("✅ Contradiction scores generated and saved!")
+print(" Contradiction scores generated and saved!")
 
-# -------------------------
-# 1️⃣ Derived features (numeric & categorical)
-# -------------------------
+
+#  Derived features (numeric & categorical)
 numeric_features = ['hashtags_count', 'user_mentions_count', 'urls_count', 'emojis_count', 'num_posts_user']
 categorical_features = ['username']
 
-# -------------------------
+
 # Temporal encoding (sin/cos)
-# -------------------------
 def temporal_encoding(timestamps, period=24*60*60):
     sin_enc = np.sin(2 * np.pi * timestamps / period)
     cos_enc = np.cos(2 * np.pi * timestamps / period)
     return np.stack([sin_enc, cos_enc], axis=1)
 
-# -------------------------
-# 2️⃣ Preprocessing
-# -------------------------
+
+#  Preprocessing
 preprocessor = ColumnTransformer(transformers=[
     ('num', StandardScaler(), numeric_features),
     ('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), categorical_features)
@@ -431,9 +417,9 @@ temporal_array = temporal_encoding(timestamps_unix)
 metadata_array = np.hstack([numeric_cat_array, temporal_array])
 metadata_tensor = torch.tensor(metadata_array, dtype=torch.float32).to(device)
 
-# -------------------------
-# 3️⃣ Dense embedding projection
-# -------------------------
+
+#  Dense embedding projection
+
 class MetadataEmbedding(nn.Module):
     def __init__(self, input_dim, embed_dim=128):
         super().__init__()
@@ -446,9 +432,9 @@ class MetadataEmbedding(nn.Module):
 metadata_embed_model = MetadataEmbedding(input_dim=metadata_tensor.shape[1], embed_dim=128).to(device)
 dense_embeddings = metadata_embed_model(metadata_tensor)
 
-# -------------------------
-# 4️⃣ Optional Sequence Modeling (per-user GRU)
-# -------------------------
+
+#  Optional Sequence Modeling (per-user GRU)
+
 user_groups = df.groupby('username')['post_id'].apply(list).to_dict()
 gru_input_dim = dense_embeddings.shape[1]
 gru_hidden_dim = 128
@@ -464,26 +450,14 @@ with torch.no_grad():
 
 metadata_embedding_vector = torch.stack([user_embedding_dict[u] for u in df['username']], dim=0)
 
-# -------------------------
-# 5️⃣ Save embeddings
-# -------------------------
+
+#  Save embeddings
+
 torch.save(dense_embeddings.cpu(), "metadata_dense_embeddings.pt")
 torch.save(metadata_embedding_vector.cpu(), "metadata_user_sequence_embeddings.pt")
-print("✅ Dense embeddings shape:", dense_embeddings.shape)
-print("✅ Metadata sequence embeddings shape:", metadata_embedding_vector.shape)
+print(" Dense embeddings shape:", dense_embeddings.shape)
+print(" Metadata sequence embeddings shape:", metadata_embedding_vector.shape)
 
-
-# =======================================================
-# fIXES FOR MEANINGFUL CLUSTERING 
-# =======================================================
-
-
-
-
-
-# =======================================================================================
-# FIXED ADAPTIVE MULTIMODAL FUSION LAYER - ALL ISSUES RESOLVED
-# =======================================================================================
 
 import torch
 import torch.nn as nn
@@ -491,9 +465,9 @@ import torch.nn.functional as F
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# ==============================================================================
-# STEP 1: INPUT PROJECTION
-# ==============================================================================
+
+# INPUT PROJECTION
+
 
 class Step1_InputProjection(nn.Module):
     def __init__(self, d_text=128, d_image=1024, d_meta=128, d_common=256):
@@ -531,9 +505,9 @@ class Step1_InputProjection(nn.Module):
         return z_text, z_image, z_meta
 
 
-# ==============================================================================
-# STEP 2: CROSS-MODAL ATTENTION
-# ==============================================================================
+
+#  2: CROSS-MODAL ATTENTION
+
 
 class Step2_CrossModalAttention(nn.Module):
     def __init__(self, d_common, num_heads=8):
@@ -591,7 +565,7 @@ class Step2_CrossModalAttention(nn.Module):
 2. Made residual weights learnable parameters
 3. This preserves variance while still allowing cross-modal interaction
 
-Run diagnostics again after this change. You should see:
+
 '''
 '''
 After attention:
@@ -599,14 +573,13 @@ After attention:
   z_image_attn: ~0.7-0.8 (instead of 0.001562)
 '''
 
-# ==============================================================================
-# STEP 3: MISMATCH VECTOR (FIXED - REMOVED LayerNorm)
-# ==============================================================================
+#  MISMATCH VECTOR 
+
 
 class Step3_MismatchVector(nn.Module):
     def __init__(self, d_common=256):
         super().__init__()
-        # FIXED: Removed LayerNorm to allow mismatch discrimination
+        #Removed LayerNorm to allow mismatch discrimination
         self.mismatch_encoder = nn.Sequential(
             nn.Linear(d_common, d_common),
             nn.ReLU(),
@@ -623,9 +596,9 @@ class Step3_MismatchVector(nn.Module):
         return v_mismatch
 
 
-# ==============================================================================
-# STEP 4: PATTERN LEARNER (FIXED - All scorers output [B, 1])
-# ==============================================================================
+
+# PATTERN LEARNER 
+
 
 class ModalityPatternLearner(nn.Module):
     def __init__(self, d_common=256, hidden_dim=128):
@@ -684,23 +657,22 @@ class ModalityPatternLearner(nn.Module):
 
     def forward(self, z_text, z_image, z_meta):
         suspicion_scores = torch.cat([
-            self.text_scorer(z_text),      # [B, 1]
-            self.image_scorer(z_image),    # [B, 1]
-            self.meta_scorer(z_meta)       # [B, 1]
+            self.text_scorer(z_text),      
+            self.image_scorer(z_image),   
+            self.meta_scorer(z_meta)      
         ], dim=1)  # Result: [B, 3]
         
         pattern_confidence = torch.cat([
-            self.text_conf(z_text),        # [B, 1]
-            self.image_conf(z_image),      # [B, 1]
-            self.meta_conf(z_meta)         # [B, 1]
+            self.text_conf(z_text),        
+            self.image_conf(z_image),      
+            self.meta_conf(z_meta)         
         ], dim=1)  # Result: [B, 3]
         
         return suspicion_scores, pattern_confidence
 
 
-# ==============================================================================
-# STEP 4b: MISMATCH ANALYZER
-# ==============================================================================
+#  4b: MISMATCH ANALYZER
+
 
 class ModalityMismatchAnalyzer(nn.Module):
     def __init__(self, d_common=256):
@@ -724,9 +696,8 @@ class ModalityMismatchAnalyzer(nn.Module):
         return alignment_score, mismatch_mag, is_contradictory
 
 
-# ==============================================================================
-# STEP 4c: ADAPTIVE MODALITY WEIGHTING (FIXED - Correct input size + Softmax)
-# ==============================================================================
+#  4c: ADAPTIVE MODALITY WEIGHTING (FIXED - Correct input size + Softmax)
+
 
 class AdaptiveModalityWeighting(nn.Module):
     def __init__(self, d_common=256):
@@ -764,9 +735,9 @@ class AdaptiveModalityWeighting(nn.Module):
         return z_fused, modality_weights
 
 
-# ==============================================================================
-# STEP 5: CLASSIFICATION HEAD WITH UNCERTAINTY
-# ==============================================================================
+
+#  5: CLASSIFICATION HEAD WITH UNCERTAINTY
+
 
 class ClassificationHeadWithUncertainty(nn.Module):
     def __init__(self, d_in=256, d_hidden=256):
@@ -791,9 +762,9 @@ class ClassificationHeadWithUncertainty(nn.Module):
         return logit, uncertainty_score
 
 
-# ==============================================================================
+
 # COMPLETE MODEL
-# ==============================================================================
+
 
 class AdaptiveMultimodalFakeNewsDetector(nn.Module):
     def __init__(self, d_text=128, d_image=1024, d_meta=128, d_common=256):
@@ -852,9 +823,8 @@ class AdaptiveMultimodalFakeNewsDetector(nn.Module):
         return logit
 
 
-# ==============================================================================
 # LOSSES
-# ==============================================================================
+
 
 class ContrastiveMismatchLoss(nn.Module):
     def __init__(self, temperature=0.1):
@@ -871,9 +841,9 @@ class ContrastiveMismatchLoss(nn.Module):
         return loss
 
 
-# ==============================================================================
+
 # HELPER FUNCTIONS
-# ==============================================================================
+
 
 def unpack_batch(batch, device):
     """Extract batch tensors safely"""
@@ -1017,9 +987,9 @@ def diagnose_fusion_layer(model, batch):
         print("\n" + "="*70)
 
 
-# ==============================================================================
+
 # TEST
-# ==============================================================================
+
 
 if __name__ == "__main__":
     print("Initializing model...")
@@ -1032,16 +1002,14 @@ if __name__ == "__main__":
     
     print("Model created successfully!")
     print(f"Total parameters: {sum(p.numel() for p in model.parameters()):,}")
-    
-    # Create dummy batch
+
     batch = {
         'text': torch.randn(8, 128).to(device),
         'image': torch.randn(8, 1024).to(device),
         'metadata': torch.randn(8, 128).to(device),
         'label': torch.randint(0, 2, (8,)).float().to(device)
     }
-    
-    # NEW DIAGNOSTIC - ADD HERE
+
     print("\nVariance Diagnostic:")
     with torch.no_grad():
         text_var = batch['text'].var(dim=0).mean().item()

@@ -1,20 +1,10 @@
-"""
-UPLOAD MODELS TO HUGGING FACE
-==============================
-Run this script to upload your model files to Hugging Face Hub.
-
-BEFORE RUNNING:
-1. Install: pip install huggingface_hub
-2. Create account at huggingface.co
-3. Run this script
-"""
 
 import os
 import sys
 
 def main():
     print("="*70)
-    print("🤗 HUGGING FACE MODEL UPLOADER")
+    print(" HUGGING FACE MODEL UPLOADER")
     print("="*70)
     print()
     
@@ -22,12 +12,12 @@ def main():
     try:
         from huggingface_hub import HfApi, login
     except ImportError:
-        print("❌ huggingface_hub not installed!")
+        print(" huggingface_hub not installed!")
         print()
         print("Installing now...")
         os.system(f"{sys.executable} -m pip install huggingface_hub")
         from huggingface_hub import HfApi, login
-        print("✅ Installed!")
+        print(" Installed!")
         print()
     
     # Step 1: Login
@@ -44,10 +34,10 @@ def main():
     
     try:
         login()
-        print("✅ Logged in successfully!")
+        print(" Logged in successfully!")
         print()
     except Exception as e:
-        print(f"❌ Login failed: {e}")
+        print(f" Login failed: {e}")
         print()
         print("Please make sure you:")
         print("1. Created a Hugging Face account at huggingface.co")
@@ -62,15 +52,15 @@ def main():
     
     username = input("Enter your Hugging Face username: ").strip()
     if not username:
-        print("❌ Username required!")
+        print(" Username required!")
         return 1
     
     repo_name = input("Enter repository name [verityguard-models]: ").strip() or "verityguard-models"
     repo_id = f"{username}/{repo_name}"
     
     print()
-    print(f"📦 Repository: {repo_id}")
-    print(f"🔗 URL: https://huggingface.co/{repo_id}")
+    print(f" Repository: {repo_id}")
+    print(f" URL: https://huggingface.co/{repo_id}")
     print()
     
     # Step 3: Create repository
@@ -87,10 +77,10 @@ def main():
             exist_ok=True,
             private=False
         )
-        print(f"✅ Repository '{repo_id}' created/verified")
+        print(f"Repository '{repo_id}' created/verified")
         print()
     except Exception as e:
-        print(f"❌ Failed to create repo: {e}")
+        print(f" Failed to create repo: {e}")
         return 1
     
     # Step 4: Check for model files
@@ -107,15 +97,15 @@ def main():
     for model_path in models:
         if os.path.exists(model_path):
             size_mb = os.path.getsize(model_path) / (1024 * 1024)
-            print(f"✅ Found: {model_path} ({size_mb:.1f} MB)")
+            print(f" Found: {model_path} ({size_mb:.1f} MB)")
             files_to_upload.append(model_path)
         else:
-            print(f"⚠️  Not found: {model_path}")
+            print(f"  Not found: {model_path}")
     
     print()
     
     if not files_to_upload:
-        print("❌ No model files found!")
+        print(" No model files found!")
         print()
         print("Please make sure you have:")
         print("  - checkpoints/best_emotion_aware_detector.pth")
@@ -123,13 +113,13 @@ def main():
         print()
         return 1
     
-    print(f"📤 Ready to upload {len(files_to_upload)} file(s)")
+    print(f" Ready to upload {len(files_to_upload)} file(s)")
     print()
     
     # Confirm upload
     confirm = input("Proceed with upload? (yes/no): ").strip().lower()
     if confirm not in ['yes', 'y']:
-        print("❌ Upload cancelled")
+        print(" Upload cancelled")
         return 0
     
     print()
@@ -145,7 +135,7 @@ def main():
     for local_path in files_to_upload:
         filename = os.path.basename(local_path)
         
-        print(f"📤 Uploading: {filename}...")
+        print(f" Uploading: {filename}...")
         
         try:
             api.upload_file(
@@ -154,29 +144,29 @@ def main():
                 repo_id=repo_id,
                 repo_type="model"
             )
-            print(f"   ✅ Uploaded successfully!")
+            print(f"   Uploaded successfully!")
             uploaded += 1
         except Exception as e:
-            print(f"   ❌ Failed: {e}")
+            print(f"    Failed: {e}")
             failed += 1
         
         print()
     
     # Step 6: Summary
     print("="*70)
-    print("📊 UPLOAD SUMMARY")
+    print(" UPLOAD SUMMARY")
     print("="*70)
     print()
-    print(f"✅ Uploaded: {uploaded} file(s)")
+    print(f" Uploaded: {uploaded} file(s)")
     if failed > 0:
-        print(f"❌ Failed: {failed} file(s)")
+        print(f" Failed: {failed} file(s)")
     print()
-    print(f"🔗 View at: https://huggingface.co/{repo_id}")
+    print(f" View at: https://huggingface.co/{repo_id}")
     print()
     
     # Step 7: Next steps
     print("="*70)
-    print("📝 NEXT STEPS")
+    print(" NEXT STEPS")
     print("="*70)
     print()
     print("1. Update download_models.py:")
@@ -195,10 +185,10 @@ def main():
     print()
     
     if uploaded == len(files_to_upload):
-        print("🎉 All files uploaded successfully!")
+        print(" All files uploaded successfully!")
         return 0
     else:
-        print("⚠️  Some files failed to upload. Please check errors above.")
+        print("  Some files failed to upload. Please check errors above.")
         return 1
 
 
@@ -207,10 +197,10 @@ if __name__ == "__main__":
         exit_code = main()
         sys.exit(exit_code)
     except KeyboardInterrupt:
-        print("\n\n❌ Upload cancelled by user")
+        print("\n\n Upload cancelled by user")
         sys.exit(1)
     except Exception as e:
-        print(f"\n\n❌ Unexpected error: {e}")
+        print(f"\n\n Unexpected error: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

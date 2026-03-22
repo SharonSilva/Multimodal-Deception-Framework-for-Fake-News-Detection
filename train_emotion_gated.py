@@ -9,12 +9,10 @@ from sklearn.model_selection import train_test_split
 import numpy as np
 import os
 
-# Import your fusion layer
+
 from rough_work import EmotionAwareFusionLayer, EmotionAwareFakeNewsDetector
 
-# ============================================================================
-# DEVICE SETUP
-# ============================================================================
+
 device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
 print(f"\n Using device: {device.type.upper()}")
 
@@ -25,9 +23,9 @@ elif device.type == "mps":
 else:
     print("  -> Running on CPU")
 
-# ============================================================================
+
 # DATASET CLASS WITH DIMENSION FIXING
-# ============================================================================
+
 class FakeNewsVADDataset(Dataset):
     """Dataset class for emotion-aware fake news detection with dimension fixes."""
 
@@ -72,14 +70,9 @@ class FakeNewsVADDataset(Dataset):
             'labels': self.labels[idx]
         }
 
-# ============================================================================
-# EMOTION-AWARE MODEL WITH DIMENSION SAFETY
-# ============================================================================
-#removed
 
-# ============================================================================
 # SAFE VAD DATA INDEXING
-# ============================================================================
+
 def index_vad_data(vad_data, indices):
     """Safely index VAD data with dimension validation."""
     indexed_data = {}
@@ -112,9 +105,8 @@ def index_vad_data(vad_data, indices):
     
     return indexed_data
 
-# ============================================================================
 # VAD DATA PREPARATION
-# ============================================================================
+
 def prepare_vad_data_with_validation(df):
     """Prepare VAD data with automatic dimension adjustment."""
     N = len(df)
@@ -183,9 +175,9 @@ def prepare_vad_data_with_validation(df):
     print(f"\n VAD data prepared successfully for {N} samples")
     return vad_data
 
-# ============================================================================
+
 # TRAINING & VALIDATION
-# ============================================================================
+
 def train_epoch(model, dataloader, optimizer, criterion, device):
     model.train()
     total_loss, correct, total = 0, 0, 0
@@ -257,9 +249,8 @@ def validate(model, dataloader, criterion, device):
 
     return total_loss / len(dataloader), correct / total
 
-# ============================================================================
 # MAIN
-# ============================================================================
+
 def main():
     print("\n" + "="*70)
     print(" TRAINING EMOTION-AWARE FAKE NEWS DETECTOR")
