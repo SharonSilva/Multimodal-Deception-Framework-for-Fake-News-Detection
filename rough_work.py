@@ -768,7 +768,7 @@ if __name__ == "__main__":
     print(f"   Affective meta: {vad_data['affective_meta'].shape}")
     
     #  Initialize model 
-    print("\n🔧 Step 2: Initializing model...")
+    print("\n Step 2: Initializing model...")
     
     model = EmotionAwareFakeNewsDetector(
         d_text=128,

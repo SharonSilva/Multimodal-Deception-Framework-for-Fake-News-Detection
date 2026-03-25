@@ -1,6 +1,5 @@
 """
-prepare_clustering_data.py
-================================
+
 Prepares embeddings for campaign-level clustering & graph construction.
 Uses ONLY the trained EmotionAwareFakeNewsDetector (which already does fusion).
 Outputs:
@@ -144,7 +143,7 @@ dataloader = DataLoader(dataset, batch_size=32, shuffle=False)
 print(f" Dataset ready: {len(dataset)} samples")
 
 
-# STEP 4: Load TRAINED emotion-aware model
+#  Load TRAINED emotion-aware model
 
 
 print("\n[4/6] Loading Emotion-Aware Model...")
@@ -189,7 +188,7 @@ emotion_model.eval()
 print(" Emotion model loaded")
 
 
-# STEP 5: Extract embeddings
+# Extract embeddings
 
 
 print("\n[5/6] Extracting embeddings...")
@@ -206,7 +205,7 @@ with torch.no_grad():
         vad_image = batch['vad_image'].to(device)
         affective_meta = batch['affective_meta'].to(device)
 
-        # Step2: Emotion-aware model 
+        #  Emotion-aware model 
         logits, intermediates = emotion_model(
             h_text, h_image, h_meta,
             affective_meta=affective_meta,
@@ -231,7 +230,7 @@ print("  z std:", z_tensor.std().item())
 print("  v_mismatch std:", v_mismatch_tensor.std().item())
 
 
-# STEP 6: Save
+#  Save
 
 
 prepared = {

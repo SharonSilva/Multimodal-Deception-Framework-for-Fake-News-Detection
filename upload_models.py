@@ -22,6 +22,6 @@ for local_path, repo_path in files_to_upload:
         repo_type="model",
         token=token
     )
-    print(f"✅ {repo_path} uploaded")
+    print(f" {repo_path} uploaded")
 
 print("All models uploaded successfully")

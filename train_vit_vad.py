@@ -165,7 +165,7 @@ def train_model(train_loader, val_loader, model, epochs=3, lr=1e-4):
                 preds, _ = model(imgs)
                 val_loss += loss_fn(preds, labels).item()
                 loop.set_postfix(val_loss=val_loss / (loop.n + 1))
-        print(f"📊 Epoch {epoch+1}/{epochs} | Train Loss: {train_loss/len(train_loader):.4f} | Val Loss: {val_loss/len(val_loader):.4f}")
+        print(f" Epoch {epoch+1}/{epochs} | Train Loss: {train_loss/len(train_loader):.4f} | Val Loss: {val_loss/len(val_loader):.4f}")
     return model
 
 if __name__ == "__main__":

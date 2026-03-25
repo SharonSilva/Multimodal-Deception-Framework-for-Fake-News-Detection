@@ -688,10 +688,10 @@ def run_anomaly(z_out_np, v_mismatch_np):
     directly from interpretable embedding statistics that are stable at inference.
 
     Components:
-      1. Embedding entropy    — low entropy = model is uncertain/confused
-      2. Embedding variance   — unusually high/low variance = out-of-distribution
-      3. VAD mismatch norm    — large text/image emotional divergence = anomalous
-      4. Kurtosis signal      — heavy tails in z_aug = anomalous activation pattern
+      Embedding entropy : low entropy = model is uncertain/confused
+      Embedding variance :unusually high/low variance = out-of-distribution
+      VAD mismatch norm : large text/image emotional divergence = anomalous
+      Kurtosis signal : heavy tails in z_aug = anomalous activation pattern
     """
     z = z_out_np.reshape(-1).astype(np.float64)
     v = v_mismatch_np.reshape(-1).astype(np.float64)
@@ -1185,30 +1185,9 @@ def get_clip_description(img_feat_norm, img_b64_raw: str = None) -> str:
 
 def check_entity_consistency_llm(text, image_description, img_feat_norm=None):
     """
-    Hybrid entity consistency check:
-
-    Stage 1 — CLIP contextual matching (primary, runs on image embedding directly)
-    ────────────────────────────────────────────────────────────────────────────
     The old approach fed moondream's text description into llama3.2, which lost
     information at every step and failed on contextually adjacent images (crowds
     near an explosion, soldiers on streets during an attack).
-
-    Instead we use CLIP directly on the image embedding, comparing it against a
-    rich set of "valid evidence" prompts for each event type detected in the text.
-    This works because CLIP was trained on image-text pairs and understands that:
-      - "people fleeing on a city street at night" matches "terror attack"
-      - "soldiers deployed on urban streets" matches "security emergency"
-      - "crowd gathered outside a venue" matches "explosion at nearby location"
-
-    We compute two CLIP scores:
-      match_score  — max similarity to any valid-evidence prompt for this event type
-      reject_score — max similarity to clearly-unrelated content prompts
-
-    If match_score > threshold OR match_score > reject_score + margin → MATCH
-    If reject_score >> match_score → MISMATCH
-    If ambiguous → fall through to Stage 2
-
-    Stage 2 — llama3.2 LLM check (fallback for ambiguous cases only)
 
     """
     import urllib.request, json as json_lib
@@ -1216,7 +1195,7 @@ def check_entity_consistency_llm(text, image_description, img_feat_norm=None):
     text_lower = text.lower()
     img_lower  = image_description.lower()
 
-    # ── Event type detection from text ───────────────────────────────────────
+    # Event type detection from text 
     attack_text  = any(w in text_lower for w in [
         "attack","terror","terrorist","shooting","bomb","explosion","blast",
         "gunman","gunfire","killed","siege","lockdown","threat","emergency",
@@ -1239,7 +1218,7 @@ def check_entity_consistency_llm(text, image_description, img_feat_norm=None):
     ])
     disaster_text = earthquake_text or flood_text or fire_text or attack_text or military_text
 
-    # ── Stage 1: CLIP contextual matching ────────────────────────────────────
+    #Stage 1: CLIP contextual matching 
     if img_feat_norm is not None:
         clip_model = MODELS["clip"]
         tokenize   = MODELS["clip_tok"]
@@ -1514,7 +1493,6 @@ def calibrate():
             pickle.dump(calibrator, f)
         MODELS["calibrator"] = calibrator
 
-        # Quick sanity check — what does 0.998 become?
         test_logits = np.array([[4.0], [5.0], [6.0], [-1.0], [-3.0]])
         test_probs  = calibrator.predict_proba(test_logits)[:, 1]
         print(f"[calibration] Sanity check (raw logit → calibrated prob):")
@@ -2039,9 +2017,6 @@ def serve_static(path):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5001))
-    print("=" * 60)
-    print("Multimodal Deception Framework — Inference Server")
-    print("=" * 60)
     load_all_models()
     print(f"[server] Starting on http://0.0.0.0:{port}")
     print("[server] POST /predict  →  { text, image_base64 }")

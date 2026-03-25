@@ -49,9 +49,9 @@ def probs_to_vad(canonical_probs):
         vad += canonical_probs[i] * vad_mapping[em]
     return vad
 
-# -------------------------
+
 # Emoji and Lexicon mappings
-# -------------------------
+
 emoji_vad_map = {
     "😂": [0.95, 0.8, 0.7], "🤣": [0.95, 0.9, 0.8],
     "😊": [0.9, 0.6, 0.7], "😍": [0.9, 0.7, 0.8],
@@ -77,9 +77,9 @@ lexicon_vad = {
     "tired": [0.3, 0.2, 0.4],
 }
 
-# -------------------------
+
 # Hybrid Emoji-Lexicon VAD computation
-# -------------------------
+
 def get_vad_from_emoji(emj, lexicon):
     desc = emoji.demojize(emj)
     words = [w.strip(':') for w in desc.split('_')]
@@ -99,16 +99,16 @@ def get_vad_from_text_with_emojis(text, lexicon, emoji_vad_map):
         return np.mean(vad_vectors, axis=0)
     return np.array([0.5, 0.5, 0.5], dtype=np.float32)
 
-# -------------------------
+
 # Merge text + emoji list
-# -------------------------
+
 def merge_text_emojis(text, emojis_list):
     emoji_text = ' '.join([emoji.demojize(e) for e in emojis_list])
     return f"{text} {emoji_text}".strip()
 
-# -------------------------
+
 # Hybrid compute function
-# -------------------------
+
 def compute_text_vad(texts, emojis_list=None, batch_size=32, fusion_weight=0.7):
     all_probs, all_vad = [], []
 
@@ -142,9 +142,9 @@ def compute_text_vad(texts, emojis_list=None, batch_size=32, fusion_weight=0.7):
 
     return np.array(all_probs, dtype=np.float32), np.array(all_vad, dtype=np.float32)
 
-# -------------------------
+
 # Example usage
-# -------------------------
+
 # df = pd.read_pickle("Dataset/twitter/cleaned_texts.pkl")  # must have columns 'clean_text' and 'emojis'
 texts = df['clean_text'].tolist()
 emojis_list = df['emojis'].tolist()
@@ -160,9 +160,9 @@ df['text_dominance'] = df['text_vad'].apply(lambda x: float(x[2]))
 df.to_pickle("Dataset/twitter/df_with_text_emotions_vad.pkl")
 print("✅ Text VAD saved to df_with_text_emotions_vad.pkl")
 
-# -------------------------
+
 # VAD → Embedding projection (TRAINED)
-# -------------------------
+
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import TensorDataset, DataLoader
@@ -239,15 +239,15 @@ torch.save(
     text_vad_embedding.cpu(), 
     "Dataset/twitter/text_vad_embedding.pt"
 )
-print("✅ Trained VAD embeddings saved as .pt tensor")
+print("Trained VAD embeddings saved as .pt tensor")
 
 # Also save raw 3D VAD for reference
 torch.save(
     torch.tensor(text_vad[:n_img], dtype=torch.float32),
     "Dataset/twitter/text_vad_raw.pt"
 )
-print("✅ Raw 3D VAD scores saved as text_vad_raw.pt")
+print(" Raw 3D VAD scores saved as text_vad_raw.pt")
 
 df_aligned.to_pickle("Dataset/twitter/df_with_text_vad_embedding.pkl")
-print("✅ Full DataFrame with trained VAD embeddings saved successfully ✅")
+print(" Full DataFrame with trained VAD embeddings saved successfully ")
 

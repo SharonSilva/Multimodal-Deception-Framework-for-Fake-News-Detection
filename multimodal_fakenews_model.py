@@ -561,11 +561,11 @@ class EmbeddingPreprocessor:
     def post_fusion_reduction(self, fused):
         """Step 6: Optional dimensionality reduction after fusion"""
         if self.post_fusion_method is None:
-            print("\n⏩ Step 6: Skipping post-fusion reduction")
+            print("\n Step 6: Skipping post-fusion reduction")
             return fused
         
-        print(f"\n📊 Step 6: Post-fusion reduction ({self.post_fusion_method})")
-        
+        print(f"\n Step 6: Post-fusion reduction ({self.post_fusion_method})")
+    
         if self.post_fusion_method == 'pca':
             self.post_fusion_reducer = PCA(n_components=self.post_fusion_dim)
             reduced = self.post_fusion_reducer.fit_transform(fused)
@@ -583,7 +583,7 @@ class EmbeddingPreprocessor:
     
     def cluster_embeddings(self, embeddings):
         """Step 7: Cluster embeddings"""
-        print(f"\n🔍 Step 7: Clustering ({self.cluster_method})")
+        print(f"\n Step 7: Clustering ({self.cluster_method})")
         
         if self.cluster_method == 'hdbscan':
             self.clusterer = HDBSCAN(min_cluster_size=10, 
@@ -607,12 +607,12 @@ class EmbeddingPreprocessor:
     
     def evaluate_clustering(self, embeddings, cluster_labels):
         """Step 8: Evaluate clustering quality"""
-        print("\n📈 Step 8: Evaluate clustering")
+        print("\n Step 8: Evaluate clustering")
         
         if -1 in cluster_labels:
             mask = cluster_labels != -1
             if mask.sum() < 2:
-                print("  ⚠️ Too few non-noise points to compute silhouette score")
+                print("   Too few non-noise points to compute silhouette score")
                 return None
             embeddings_clean = embeddings[mask]
             labels_clean = cluster_labels[mask]
@@ -622,7 +622,7 @@ class EmbeddingPreprocessor:
         
         n_unique_labels = len(set(labels_clean))
         if n_unique_labels < 2:
-            print("  ⚠️ Need at least 2 clusters to compute silhouette score")
+            print("   Need at least 2 clusters to compute silhouette score")
             return None
         
         silhouette = silhouette_score(embeddings_clean, labels_clean)
@@ -741,7 +741,7 @@ torch.save(torch.tensor(preprocessing_results['meta_reduced']), "Dataset/twitter
 df['cluster_label'] = preprocessing_results['cluster_labels']
 
 
-# 🔥 USE PREPROCESSED EMBEDDINGS FOR MODEL TRAINING
+#  USE PREPROCESSED EMBEDDINGS FOR MODEL TRAINING
 
 
 # Convert preprocessed embeddings back to tensors
@@ -1093,7 +1093,7 @@ class ModalityPatternLearner(nn.Module):
 
 
 
-# STEP 4b: MISMATCH ANALYZER
+# MISMATCH ANALYZER
 
 
 class ModalityMismatchAnalyzer(nn.Module):
@@ -1119,7 +1119,7 @@ class ModalityMismatchAnalyzer(nn.Module):
 
 
 
-# STEP 4c: ADAPTIVE MODALITY WEIGHTING
+# ADAPTIVE MODALITY WEIGHTING
 
 
 class AdaptiveModalityWeighting(nn.Module):
@@ -1152,7 +1152,7 @@ class AdaptiveModalityWeighting(nn.Module):
 
 
 
-# STEP 5: CLASSIFICATION HEAD WITH UNCERTAINTY
+# CLASSIFICATION HEAD WITH UNCERTAINTY
 
 
 class ClassificationHeadWithUncertainty(nn.Module):
